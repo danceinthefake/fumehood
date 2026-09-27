@@ -446,9 +446,7 @@ served by `FumehoodWeb.PageController`. Sidebar of databases (read only /
 read / write), Query tab (editor, Ctrl+Enter, result table, or a dry-run
 panel with "Commit N rows" + confirm dialog; editing the SQL discards the
 dry run), Backups tab (list, restore plan with the generated SQL, confirm).
-blessing-ui is not published on npm yet — `assets/package.json` uses
-`file:../../blessing-ui`; publishing it is needed before anyone else can
-build fumehood (and before the Docker image, milestone 5).
+blessing-ui comes from npm (`blessing-ui` ^0.1.0).
 
 **Decided** — own store: **SQLite** (`ecto_sqlite3`) by default, so the Docker
 image runs with a single volume and no extra database; Postgres as an option

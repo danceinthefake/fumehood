@@ -9,7 +9,7 @@
     "format:check": "oxfmt --check ."
   },
   "dependencies": {
-    "blessing-ui": "file:../../blessing-ui",
+    "blessing-ui": "^0.1.0",
     "vue": "^3.5.43"
   },
   "devDependencies": {

@@ -24,5 +24,3 @@ The UI (`assets/`, Vue + [blessing-ui](../blessing-ui)) is built into
 `mise exec -- pnpm dev` in `assets/` (Vite on :5173, `/api` forwarded to
 :4000). `FUMEHOOD_DEV_USER=you@example.com` sets who you are in development.
 
-blessing-ui is not on npm yet: `assets/package.json` takes it from
-`../../blessing-ui` (a checkout next to this repo, with `dist/` built).
