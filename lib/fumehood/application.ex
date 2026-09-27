@@ -13,7 +13,8 @@ defmodule Fumehood.Application do
         Fumehood.Repo,
         {Ecto.Migrator,
          repos: Application.fetch_env!(:fumehood, :ecto_repos), skip: skip_migrations?()},
-        {Phoenix.PubSub, name: Fumehood.PubSub}
+        {Phoenix.PubSub, name: Fumehood.PubSub},
+        Fumehood.Queries
       ] ++ databases() ++ [FumehoodWeb.Endpoint]
 
     # See https://elixir.hexdocs.pm/Supervisor.html

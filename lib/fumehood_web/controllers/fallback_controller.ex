@@ -4,6 +4,7 @@ defmodule FumehoodWeb.FallbackController do
 
   def call(conn, {:error, {:blocked, rule, message}}), do: error(conn, 422, rule, message)
   def call(conn, {:error, {:db_error, message}}), do: error(conn, 422, :db_error, message)
+  def call(conn, {:error, {:cancelled, message}}), do: error(conn, 409, :cancelled, message)
   def call(conn, {:error, :not_found}), do: error(conn, 404, :not_found, "Not found.")
   def call(conn, {:error, {:bad_request, message}}), do: error(conn, 400, :bad_request, message)
 

@@ -12,6 +12,9 @@ defmodule Fumehood.Runner do
     * `:lock_timeout` — ms, default 5_000
     * `:max_rows` — rows returned by a read / changed by a write, default 1000
     * `:preview` — rows shown from a write dry run, default 20
+    * `:on_backend` — `fn backend_pid -> any end`, called once the
+      transaction has started, with its Postgres backend pid (used by
+      `Fumehood.Queries` to cancel a running statement)
     * `:prepare` — `fn tx -> :ok | {:error, reason} end`, run first inside
       the transaction (used by `Fumehood.Restore` to load a backup into a
       temporary table)
@@ -313,6 +316,12 @@ defmodule Fumehood.Runner do
   defp in_transaction(conn, opts, mode, fun) do
     Postgrex.transaction(conn, fn tx ->
       if mode == :read_only, do: Postgrex.query!(tx, "SET TRANSACTION READ ONLY", [])
+
+      if on_backend = opts[:on_backend] do
+        [[backend]] = Postgrex.query!(tx, "SELECT pg_backend_pid()", []).rows
+        on_backend.(backend)
+      end
+
       Postgrex.query!(tx, "SET LOCAL statement_timeout = #{opts[:statement_timeout]}", [])
       Postgrex.query!(tx, "SET LOCAL lock_timeout = #{opts[:lock_timeout]}", [])
 

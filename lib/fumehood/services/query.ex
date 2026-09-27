@@ -13,12 +13,16 @@ defmodule Fumehood.Services.Query do
 
   require Logger
 
-  alias Fumehood.{Backup, Databases, Restore, Runner, Safety, Values}
+  alias Fumehood.{Backup, Databases, Queries, Restore, Runner, Safety, Values}
   alias Fumehood.Config.Database
   alias Fumehood.Repos.AuditRepo
 
   @type identity :: %{id: String.t(), source: atom()}
-  @type error :: {:blocked, atom(), String.t()} | {:db_error, String.t()} | :not_found
+  @type error ::
+          {:blocked, atom(), String.t()}
+          | {:db_error, String.t()}
+          | {:cancelled, String.t()}
+          | :not_found
 
   @spec list_databases() :: [map()]
   def list_databases do
@@ -27,30 +31,34 @@ defmodule Fumehood.Services.Query do
 
   @doc "Runs a read, or a write's dry run (nothing is kept)."
   @spec run(String.t(), String.t(), identity()) :: {:ok, map()} | {:error, error()}
-  def run(db_id, sql, identity) do
+  def run(db_id, sql, identity, opts \\ []) do
     with {:ok, db} <- fetch(db_id) do
       audited(db, identity, %{sql: sql}, fn ->
-        with {:ok, statement} <- Safety.check(sql),
-             :ok <- allowed(db, statement) do
-          case statement.kind do
-            :read ->
-              with {:ok, r} <- Runner.read(Databases.conn(db.id), statement, limits(db)) do
-                {:ok,
-                 %{
-                   kind: :read,
-                   command: statement.command,
-                   columns: r.columns,
-                   rows: Values.rows(r.rows, r.types),
-                   truncated: r.truncated
-                 }}
-              end
+        track(opts, identity, db, fn on_backend ->
+          with {:ok, statement} <- Safety.check(sql),
+               :ok <- allowed(db, statement) do
+            case statement.kind do
+              :read ->
+                with {:ok, r} <-
+                       Runner.read(Databases.conn(db.id), statement, limits(db, on_backend)) do
+                  {:ok,
+                   %{
+                     kind: :read,
+                     command: statement.command,
+                     columns: r.columns,
+                     rows: Values.rows(r.rows, r.types),
+                     truncated: r.truncated
+                   }}
+                end
 
-            :write ->
-              with {:ok, r} <- Runner.dry_run(Databases.conn(db.id), statement, limits(db)) do
-                {:ok, dry_run_view(statement, r)}
-              end
+              :write ->
+                with {:ok, r} <-
+                       Runner.dry_run(Databases.conn(db.id), statement, limits(db, on_backend)) do
+                  {:ok, dry_run_view(statement, r)}
+                end
+            end
           end
-        end
+        end)
       end)
     end
   end
@@ -58,29 +66,31 @@ defmodule Fumehood.Services.Query do
   @doc "Commits a write whose dry run showed `expected_count` rows."
   @spec commit(String.t(), String.t(), non_neg_integer(), identity()) ::
           {:ok, map()} | {:error, error()}
-  def commit(db_id, sql, expected_count, identity) do
+  def commit(db_id, sql, expected_count, identity, opts \\ []) do
     with {:ok, db} <- fetch(db_id) do
       backup_id = Backup.new_id()
       entry = %{action: "commit", sql: sql, expected_count: expected_count, backup_id: backup_id}
 
       audited_write(db, identity, entry, fn ->
-        with {:ok, statement} <- Safety.check(sql),
-             :ok <- is_write(statement),
-             :ok <- allowed(db, statement),
-             {:ok, r} <-
-               Runner.commit(
-                 Databases.conn(db.id),
-                 statement,
-                 limits(db) ++
-                   [
-                     expected_count: expected_count,
-                     backup_dir: backup_dir(db),
-                     backup_id: backup_id,
-                     meta: %{user: identity.id, database: db.id}
-                   ]
-               ) do
-          {:ok, %{count: r.count, backup_id: backup_id}}
-        end
+        track(opts, identity, db, fn on_backend ->
+          with {:ok, statement} <- Safety.check(sql),
+               :ok <- is_write(statement),
+               :ok <- allowed(db, statement),
+               {:ok, r} <-
+                 Runner.commit(
+                   Databases.conn(db.id),
+                   statement,
+                   limits(db, on_backend) ++
+                     [
+                       expected_count: expected_count,
+                       backup_dir: backup_dir(db),
+                       backup_id: backup_id,
+                       meta: %{user: identity.id, database: db.id}
+                     ]
+                 ) do
+            {:ok, %{count: r.count, backup_id: backup_id}}
+          end
+        end)
       end)
     end
   end
@@ -130,19 +140,21 @@ defmodule Fumehood.Services.Query do
 
   @doc "Dry run of undoing a backup."
   @spec restore_dry_run(String.t(), String.t(), identity()) :: {:ok, map()} | {:error, error()}
-  def restore_dry_run(db_id, backup_id, identity) do
+  def restore_dry_run(db_id, backup_id, identity, opts \\ []) do
     with {:ok, db} <- fetch(db_id) do
       audited(db, identity, %{action: "restore_dry_run", restore_of: backup_id}, fn ->
-        with {:ok, path} <- backup(db, backup_id),
-             {:ok, r} <- Restore.dry_run(Databases.conn(db.id), path, limits(db)) do
-          {:ok,
-           %{
-             sql: r.sql,
-             count: r.count,
-             columns: r.columns,
-             preview: Values.rows(r.preview, r.types)
-           }}
-        end
+        track(opts, identity, db, fn on_backend ->
+          with {:ok, path} <- backup(db, backup_id),
+               {:ok, r} <- Restore.dry_run(Databases.conn(db.id), path, limits(db, on_backend)) do
+            {:ok,
+             %{
+               sql: r.sql,
+               count: r.count,
+               columns: r.columns,
+               preview: Values.rows(r.preview, r.types)
+             }}
+          end
+        end)
       end)
     end
   end
@@ -150,7 +162,7 @@ defmodule Fumehood.Services.Query do
   @doc "Commits the undo of a backup."
   @spec restore_commit(String.t(), String.t(), non_neg_integer(), identity()) ::
           {:ok, map()} | {:error, error()}
-  def restore_commit(db_id, backup_id, expected_count, identity) do
+  def restore_commit(db_id, backup_id, expected_count, identity, opts \\ []) do
     with {:ok, db} <- fetch(db_id) do
       new_id = Backup.new_id()
 
@@ -162,21 +174,23 @@ defmodule Fumehood.Services.Query do
       }
 
       audited_write(db, identity, entry, fn ->
-        with {:ok, path} <- backup(db, backup_id),
-             {:ok, r} <-
-               Restore.commit(
-                 Databases.conn(db.id),
-                 path,
-                 limits(db) ++
-                   [
-                     expected_count: expected_count,
-                     backup_dir: backup_dir(db),
-                     backup_id: new_id,
-                     meta: %{user: identity.id, database: db.id}
-                   ]
-               ) do
-          {:ok, %{count: r.count, backup_id: new_id}}
-        end
+        track(opts, identity, db, fn on_backend ->
+          with {:ok, path} <- backup(db, backup_id),
+               {:ok, r} <-
+                 Restore.commit(
+                   Databases.conn(db.id),
+                   path,
+                   limits(db, on_backend) ++
+                     [
+                       expected_count: expected_count,
+                       backup_dir: backup_dir(db),
+                       backup_id: new_id,
+                       meta: %{user: identity.id, database: db.id}
+                     ]
+                 ) do
+            {:ok, %{count: r.count, backup_id: new_id}}
+          end
+        end)
       end)
     end
   end
@@ -238,6 +252,9 @@ defmodule Fumehood.Services.Query do
 
   defp outcome({:error, {:db_error, message}}),
     do: %{outcome: "error", rule: "db_error", message: message}
+
+  defp outcome({:error, {:cancelled, message}}),
+    do: %{outcome: "cancelled", rule: "cancelled", message: message}
 
   defp outcome({:error, :not_found}),
     do: %{outcome: "error", rule: "not_found", message: "Not found."}
@@ -317,13 +334,18 @@ defmodule Fumehood.Services.Query do
   defp is_write(_),
     do: {:error, {:blocked, :not_a_write, "Only writes are committed; reads just run."}}
 
-  defp limits(db) do
+  defp limits(db, on_backend) do
     [
       max_rows: db.max_rows,
       statement_timeout: db.statement_timeout_ms,
-      lock_timeout: db.lock_timeout_ms
+      lock_timeout: db.lock_timeout_ms,
+      on_backend: on_backend
     ]
   end
+
+  # Registers the running query (if the caller gave it an id) so it can be
+  # cancelled with `Fumehood.Queries.cancel/2`.
+  defp track(opts, identity, db, fun), do: Queries.track(opts[:query_id], identity.id, db.id, fun)
 
   defp backup_dir(db), do: Path.join(Databases.config().backup_dir, db.id)
 

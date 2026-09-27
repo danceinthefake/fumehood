@@ -56,10 +56,12 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<Re
 export const api = {
   me: () => call<Identity>("GET", "/me"),
   databases: () => call<{ databases: Database[] }>("GET", "/databases"),
-  run: (db: string, sql: string) =>
-    call<ReadResult | DryRun>("POST", `/databases/${db}/run`, { sql }),
-  commit: (db: string, sql: string, expected_count: number) =>
-    call<Committed>("POST", `/databases/${db}/commit`, { sql, expected_count }),
+  // query_id: chosen here so the query can be cancelled while it runs
+  run: (db: string, sql: string, query_id: string) =>
+    call<ReadResult | DryRun>("POST", `/databases/${db}/run`, { sql, query_id }),
+  commit: (db: string, sql: string, expected_count: number, query_id: string) =>
+    call<Committed>("POST", `/databases/${db}/commit`, { sql, expected_count, query_id }),
+  cancel: (query_id: string) => call<{ cancelled: boolean }>("POST", `/queries/${query_id}/cancel`),
   backups: (db: string) => call<{ backups: Backup[] }>("GET", `/databases/${db}/backups`),
   restore: (db: string, id: string) =>
     call<RestorePlan>("POST", `/databases/${db}/backups/${id}/restore`, {}),

@@ -226,16 +226,29 @@ values can't be undone by key (the dry run reports it as incomplete).
 
 ### 5.5 One process per query
 
-Each running query lives in its own Elixir process, holding its own
-connection and transaction. This is where Elixir earns its place:
+Implemented (`Fumehood.Queries`, milestone 3). Each HTTP request already runs
+in its own Elixir process; while it runs a query it registers under an id
+the browser chose (a UUID), with its owner and its **Postgres backend pid**
+(reported by `Fumehood.Runner`'s `:on_backend` hook once the transaction
+starts). This is where Elixir earns its place:
 
-- **timeout / cancel:** the process asks Postgres to cancel the query
-  (`pg_cancel_backend` through Postgrex) and ends; the transaction rolls back;
+- **cancel:** `POST /api/queries/:query_id/cancel` (owner only) runs
+  `pg_cancel_backend(pid)` from another pooled connection — Postgres stops
+  the statement, the transaction rolls back, the request answers `409
+  cancelled`, and the audit records outcome `cancelled`. Killing only the
+  Elixir process wouldn't stop the statement inside Postgres.
+- **timeout:** `statement_timeout` / `lock_timeout` set inside the
+  transaction (§5.3).
 - **a crash or a closed browser tab can't leave an open transaction:** the
-  process holding it dies, the connection is dropped, Postgres rolls back;
-- **live progress:** the process pushes its state (queued → running →
-  rows counted → rolled back / committed) over a Channel to the browser;
+  process holding the connection dies, the connection is dropped, Postgres
+  rolls back (a statement already running continues until it ends or times
+  out).
 - nothing else in the app is affected by one slow query.
+
+*Changed while building:* the draft had every status change streamed over a
+Channel. The request already knows its own state, so results stay on the
+HTTP response and cancel is one HTTP call; Channels carry the live audit
+feed (§7), where they add real value.
 
 ## 6. Access control
 

@@ -66,6 +66,28 @@ onUnmounted(() => window.removeEventListener("hashchange", followHash));
 
 const sql = ref("");
 const running = ref(false);
+const runningId = ref<string | null>(null);
+const elapsed = ref(0);
+let ticker: number | undefined;
+
+// Each run / commit gets an id so it can be cancelled while Postgres works.
+function startClock(): string {
+  const id = crypto.randomUUID();
+  runningId.value = id;
+  elapsed.value = 0;
+  const t0 = performance.now();
+  ticker = window.setInterval(() => (elapsed.value = (performance.now() - t0) / 1000), 100);
+  return id;
+}
+
+function stopClock() {
+  window.clearInterval(ticker);
+  runningId.value = null;
+}
+
+async function cancel() {
+  if (runningId.value) await api.cancel(runningId.value);
+}
 const error = ref<ApiError | null>(null);
 const read = ref<ReadResult | null>(null);
 const dryRun = ref<DryRun | null>(null);
@@ -93,7 +115,8 @@ async function run() {
   if (!db.value || !sql.value.trim() || running.value) return;
   running.value = true;
   clearResult();
-  const res = await api.run(db.value.id, sql.value);
+  const res = await api.run(db.value.id, sql.value, startClock());
+  stopClock();
   running.value = false;
   if (!res.ok) error.value = res.error;
   else if (res.data.kind === "read") read.value = res.data;
@@ -103,7 +126,9 @@ async function run() {
 async function commit() {
   if (!db.value || !dryRun.value) return;
   committing.value = true;
-  const res = await api.commit(db.value.id, sql.value, dryRun.value.count);
+  confirmCommit.value = false; // close the dialog so Cancel is reachable while it runs
+  const res = await api.commit(db.value.id, sql.value, dryRun.value.count, startClock());
+  stopClock();
   committing.value = false;
   confirmCommit.value = false;
   if (res.ok) {
@@ -225,6 +250,14 @@ const when = (iso: string) => new Date(iso).toLocaleString();
             {{ writable ? "Run / dry run" : "Run" }}
           </BlessButton>
           <BlessText size="xs" muted><BlessKbd :keys="['Ctrl', 'Enter']" /></BlessText>
+          <template v-if="runningId">
+            <BlessText size="sm" muted class="elapsed"
+              >running {{ elapsed.toFixed(1) }} s</BlessText
+            >
+            <BlessButton size="sm" variant="outline" color="danger" @click="cancel">
+              Cancel
+            </BlessButton>
+          </template>
         </div>
 
         <BlessAlert v-if="error" color="danger" :title="error.rule.replaceAll('_', ' ')">
@@ -357,6 +390,9 @@ const when = (iso: string) => new Date(iso).toLocaleString();
 .sql,
 .sql textarea {
   font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+.elapsed {
+  font-variant-numeric: tabular-nums;
 }
 .restore-sql {
   margin: var(--bless-space-2) 0 0;
