@@ -60,28 +60,28 @@ server.
 
 ### 1. Get the release
 
-Download `fumehood-0.1.2.tar.gz` and its `.sha256` from the
+Download `fumehood-0.1.3.tar.gz` and its `.sha256` from the
 [Releases page](https://github.com/danceinthefake/fumehood/releases) into
 `dist/`, and check it:
 
 ```sh
-cd dist && sha256sum -c fumehood-0.1.2.tar.gz.sha256 && cd ..
+cd dist && sha256sum -c fumehood-0.1.3.tar.gz.sha256 && cd ..
 ```
 
 Or build it from source:
 
 ```sh
-scripts/build-release.sh    # → dist/fumehood-0.1.2.tar.gz
+scripts/build-release.sh    # → dist/fumehood-0.1.3.tar.gz
 ```
 
 ### 2. Install it on the VM
 
 ```sh
-gcloud compute scp dist/fumehood-0.1.2.tar.gz fumehood:~ --tunnel-through-iap
+gcloud compute scp dist/fumehood-0.1.3.tar.gz fumehood:~ --tunnel-through-iap
 gcloud compute ssh fumehood --tunnel-through-iap
 
 # on the VM:
-mkdir fumehood && tar -xzf fumehood-0.1.2.tar.gz -C fumehood
+mkdir fumehood && tar -xzf fumehood-0.1.3.tar.gz -C fumehood
 sudo fumehood/install.sh ssh_tunnel     # or: iap
 ```
 
@@ -89,7 +89,7 @@ sudo fumehood/install.sh ssh_tunnel     # or: iap
 
 | Path                                   | What                                          |
 |----------------------------------------|-----------------------------------------------|
-| `/opt/fumehood` → `/opt/fumehood-0.1.2`| the release (owned by root)                   |
+| `/opt/fumehood` → `/opt/fumehood-0.1.3`| the release (owned by root)                   |
 | `/etc/fumehood/fumehood.toml`          | your databases (`0640 root:fumehood`)         |
 | `/etc/fumehood/fumehood.env`           | secrets and settings (`0600 root`)            |
 | `/var/lib/fumehood/`                   | audit log and backups (`0700 fumehood`)       |

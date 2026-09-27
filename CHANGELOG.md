@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.3 — 2026-09-27
 
 - Removed the Bahasa Indonesia docs: the translation read unnaturally.
 

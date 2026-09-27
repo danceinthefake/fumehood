@@ -582,7 +582,8 @@ modes; Cloud Run is an optional later target.
    Debian container), Docker image for try-out, docs (README, install, setup;
    the Bahasa Indonesia versions were removed 2026-09-27), first release 0.1.0 (CHANGELOG, tag
    `v0.1.0`); 0.1.1 with the production-readiness fixes (tag `v0.1.1`); 0.1.2 blocks
-   custom volatile functions in writes (tag `v0.1.2`).
+   custom volatile functions in writes (tag `v0.1.2`); 0.1.3 English-only
+   docs (tag `v0.1.3`).
 
 ## 11. Decisions
 
