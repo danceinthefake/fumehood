@@ -30,3 +30,5 @@ fumehood-*.tar
 *.db-*
 
 /tmp/
+/priv/static/
+/assets/node_modules/

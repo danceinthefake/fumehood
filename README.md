@@ -15,5 +15,14 @@ mise install          # Erlang + Elixir
 docker compose up -d  # target Postgres 16 + 18 for integration tests
 mise exec -- mix setup
 mise exec -- mix test
+(cd assets && mise exec -- pnpm install && mise exec -- pnpm build)
 mise exec -- mix phx.server   # http://localhost:4000
 ```
+
+The UI (`assets/`, Vue + [blessing-ui](../blessing-ui)) is built into
+`priv/static` and served by Phoenix. While working on it, run
+`mise exec -- pnpm dev` in `assets/` (Vite on :5173, `/api` forwarded to
+:4000). `FUMEHOOD_DEV_USER=you@example.com` sets who you are in development.
+
+blessing-ui is not on npm yet: `assets/package.json` takes it from
+`../../blessing-ui` (a checkout next to this repo, with `dist/` built).

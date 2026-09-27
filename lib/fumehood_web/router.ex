@@ -17,4 +17,8 @@ defmodule FumehoodWeb.Router do
     post "/databases/:id/backups/:backup_id/restore", ApiController, :restore
     post "/databases/:id/backups/:backup_id/restore/commit", ApiController, :restore_commit
   end
+
+  scope "/", FumehoodWeb do
+    get "/", PageController, :index
+  end
 end

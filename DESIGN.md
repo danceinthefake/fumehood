@@ -441,6 +441,15 @@ BEAM and one of the things fumehood should show off. The alternative —
 Plug + Bandit + a raw WebSocket library — means writing channel/topic
 handling ourselves.
 
+UI (`assets/`): Vue 3 + blessing-ui, built by Vite into `priv/static` and
+served by `FumehoodWeb.PageController`. Sidebar of databases (read only /
+read / write), Query tab (editor, Ctrl+Enter, result table, or a dry-run
+panel with "Commit N rows" + confirm dialog; editing the SQL discards the
+dry run), Backups tab (list, restore plan with the generated SQL, confirm).
+blessing-ui is not published on npm yet — `assets/package.json` uses
+`file:../../blessing-ui`; publishing it is needed before anyone else can
+build fumehood (and before the Docker image, milestone 5).
+
 **Decided** — own store: **SQLite** (`ecto_sqlite3`) by default, so the Docker
 image runs with a single volume and no extra database; Postgres as an option
 for teams that want it.
@@ -481,7 +490,9 @@ modes; Cloud Run is an optional later target.
    functions, multiple statements).
 2. **API + minimal UI:** identity for both modes (IAP JWT, SSH-tunnel socket
    owner) + dev user, databases from `fumehood.toml`, editor, results table,
-   dry run → confirm → commit.
+   dry run → confirm → commit. ✅ built (config, identity, JSON API, UI;
+   2026-09-27) — **open: prove the SSH-tunnel identity with two users on a
+   real GCP VM** (`scripts/ssh-tunnel-identity-check.py`).
 3. **Live + audit:** QueryRunner processes, cancel/timeout, Channels for
    progress and the audit feed.
 4. **Hardening:** per-database `read_only` / `read_write` enforcement

@@ -1,0 +1,20 @@
+{
+  "name": "fumehood-ui",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "format": "oxfmt .",
+    "format:check": "oxfmt --check ."
+  },
+  "dependencies": {
+    "blessing-ui": "file:../../blessing-ui",
+    "vue": "^3.5.43"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^6.0.9",
+    "oxfmt": "^0.68.0",
+    "vite": "^8.3.1"
+  }
+}

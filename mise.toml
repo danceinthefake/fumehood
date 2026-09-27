@@ -1,6 +1,8 @@
 [tools]
 erlang = "29.1.1"
 elixir = "1.20.4-otp-29"
+node = "24.21.0"
+pnpm = "12"
 
 [env]
 FUMEHOOD_DEV_PG16_URL = "postgres://postgres:fumehood@localhost:55416/fumehood_target"
