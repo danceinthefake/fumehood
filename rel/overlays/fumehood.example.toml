@@ -1,0 +1,10 @@
+# fumehood's databases (docs/setup.md). Connection strings go in
+# /etc/fumehood/fumehood.env, under the name each url_env gives.
+backup_dir = "/var/lib/fumehood/backups"
+
+[databases.orders_prod]
+label   = "Orders (production)"
+mode    = "read_only"          # or "read_write"
+url_env = "ORDERS_PROD_URL"
+# optional: max_rows, statement_timeout_ms, lock_timeout_ms,
+#           backup_retention_days, pool_size

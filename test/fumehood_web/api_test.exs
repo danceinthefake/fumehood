@@ -25,6 +25,10 @@ defmodule FumehoodWeb.ApiTest do
 
   defp post_json(conn, path, body), do: post(conn, path, body)
 
+  test "GET /health", %{conn: conn} do
+    assert conn |> get("/health") |> response(200) == "ok"
+  end
+
   test "GET /api/me and /api/databases", %{conn: conn} do
     assert json_response(get(conn, "/api/me"), 200) == %{
              "id" => "test@localhost",

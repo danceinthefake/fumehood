@@ -7,6 +7,8 @@ defmodule Fumehood.Application do
 
   @impl true
   def start(_type, _args) do
+    prepare_store()
+
     children =
       [
         FumehoodWeb.Telemetry,
@@ -43,6 +45,19 @@ defmodule Fumehood.Application do
           {:ok, config} -> [{Fumehood.Databases, config}, Fumehood.Jobs.ExpireBackups]
           {:error, errors} -> raise "invalid #{path}:\n  - " <> Enum.join(errors, "\n  - ")
         end
+    end
+  end
+
+  # A fresh SQLite file switched to WAL by every pool connection at once
+  # fails with "database is locked" until they retry; switch it once first.
+  defp prepare_store do
+    path = Application.fetch_env!(:fumehood, Fumehood.Repo)[:database]
+
+    if not File.exists?(path) do
+      File.mkdir_p!(Path.dirname(path))
+      {:ok, db} = Exqlite.Sqlite3.open(path)
+      :ok = Exqlite.Sqlite3.execute(db, "PRAGMA journal_mode = WAL")
+      Exqlite.Sqlite3.close(db)
     end
   end
 

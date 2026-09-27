@@ -15,4 +15,6 @@ defmodule FumehoodWeb.PageController do
       send_resp(conn, 503, "The UI isn't built yet: cd assets && pnpm install && pnpm build")
     end
   end
+
+  def health(conn, _params), do: send_resp(conn, 200, "ok")
 end

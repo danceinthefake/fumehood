@@ -32,3 +32,4 @@ fumehood-*.tar
 /tmp/
 /priv/static/
 /assets/node_modules/
+/dist/

@@ -36,4 +36,7 @@ defmodule FumehoodWeb.Router do
     pipe_through :browser
     get "/", PageController, :index
   end
+
+  # Load balancer health check; no identity, no data.
+  get "/health", FumehoodWeb.PageController, :health
 end

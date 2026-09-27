@@ -1,0 +1,51 @@
+# fumehood as a systemd service. Installed by scripts/install.sh; settings
+# and secrets come from /etc/fumehood/fumehood.env (docs/install.md).
+[Unit]
+Description=fumehood (safe production queries)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+User=fumehood
+Group=fumehood
+Environment=PHX_SERVER=true
+Environment=RELEASE_DISTRIBUTION=none
+Environment=RELEASE_TMP=/run/fumehood
+Environment=HOME=/var/lib/fumehood
+Environment=DATABASE_PATH=/var/lib/fumehood/fumehood.db
+Environment=FUMEHOOD_CONFIG=/etc/fumehood/fumehood.toml
+# Read by systemd as root; values here override the lines above.
+EnvironmentFile=/etc/fumehood/fumehood.env
+ExecStart=/opt/fumehood/bin/fumehood start
+Restart=on-failure
+RestartSec=5
+
+# Audit log and backups hold production data: owner-only files.
+UMask=0077
+StateDirectory=fumehood
+StateDirectoryMode=0700
+RuntimeDirectory=fumehood
+RuntimeDirectoryMode=0700
+
+# Sandbox. Not ProtectProc/PrivateNetwork/PrivateUsers: ssh_tunnel mode
+# reads /proc/net/tcp and resolves OS Login uids.
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+NoNewPrivileges=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+LockPersonality=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+CapabilityBoundingSet=
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target

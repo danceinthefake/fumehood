@@ -7,7 +7,8 @@ config :fumehood, FumehoodWeb.Endpoint,
   force_ssl: [
     rewrite_on: [:x_forwarded_proto],
     exclude: [
-      # paths: ["/health"],
+      # load balancer health checks come in over plain HTTP
+      paths: ["/health"],
       hosts: ["localhost", "127.0.0.1"]
     ]
   ]

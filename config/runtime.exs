@@ -24,7 +24,9 @@ config :fumehood, FumehoodWeb.Endpoint,
   http: [port: String.to_integer(System.get_env("PORT", "4000"))]
 
 # How people reach fumehood and where their identity comes from (DESIGN.md §6).
-# Production must choose iap or ssh_tunnel; a fixed dev user is refused there.
+# Production must choose iap or ssh_tunnel. A fixed dev user is refused there
+# unless asked for by name (FUMEHOOD_ACCESS=dev) — for trying the Docker image
+# on your own machine only: everyone who reaches it acts as that user.
 env = config_env()
 
 access =
@@ -35,12 +37,19 @@ access =
     "ssh_tunnel" ->
       [mode: :ssh_tunnel]
 
-    nil when env != :prod ->
+    dev when dev == "dev" or (dev == nil and env != :prod) ->
       [mode: :dev, user: System.get_env("FUMEHOOD_DEV_USER", "dev@localhost")]
 
     other ->
-      raise "FUMEHOOD_ACCESS must be iap or ssh_tunnel (got #{inspect(other)})"
+      raise "FUMEHOOD_ACCESS must be iap, ssh_tunnel or dev (got #{inspect(other)})"
   end
+
+if env == :prod and access[:mode] == :dev,
+  do:
+    IO.warn(
+      "FUMEHOOD_ACCESS=dev: no identity check, everyone is #{access[:user]}. Local try-out only.",
+      []
+    )
 
 # Tests set their own identity in config/test.exs.
 if env != :test, do: config(:fumehood, :access, access)
@@ -75,9 +84,10 @@ if config_env() == :prod do
 
   config :fumehood, FumehoodWeb.Endpoint,
     url: [host: host, port: 443, scheme: "https"],
-    # WebSocket origins: through the SSH tunnel the browser is on localhost.
+    # WebSocket origins: through the SSH tunnel (or a local try-out) the
+    # browser is on localhost.
     check_origin:
-      if(access[:mode] == :ssh_tunnel,
+      if(access[:mode] in [:ssh_tunnel, :dev],
         do: ["//localhost", "//127.0.0.1", "//[::1]"],
         else: ["//#{host}"]
       ),

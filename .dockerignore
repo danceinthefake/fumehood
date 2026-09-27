@@ -1,0 +1,10 @@
+_build
+deps
+tmp
+dist
+priv/static
+assets/node_modules
+*.db
+*.db-*
+fumehood.dev.toml
+.git
