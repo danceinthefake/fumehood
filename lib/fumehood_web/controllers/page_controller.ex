@@ -16,5 +16,13 @@ defmodule FumehoodWeb.PageController do
     end
   end
 
-  def health(conn, _params), do: send_resp(conn, 200, "ok")
+  # Up means the audit store answers too: without it, writes are refused.
+  def health(conn, _params) do
+    case Ecto.Adapters.SQL.query(Fumehood.Repo, "SELECT 1", []) do
+      {:ok, _} -> send_resp(conn, 200, "ok")
+      {:error, _} -> send_resp(conn, 503, "audit store unavailable")
+    end
+  rescue
+    _ -> send_resp(conn, 503, "audit store unavailable")
+  end
 end

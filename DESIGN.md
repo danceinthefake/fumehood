@@ -427,6 +427,12 @@ backup id and the backup a restore undoes.
   first and are **refused** (`audit_unavailable`) if it can't be written — no
   change reaches production unrecorded. The outcome is a second entry (the
   log is never updated).
+- **A second copy off the store:** every entry is also logged as one
+  `audit {json}` line (journal on the VM, container logs in Docker), which
+  can be shipped off the machine (e.g. Cloud Logging) — someone with root
+  on the VM can edit the SQLite file, not what was already shipped.
+- `GET /health` answers 200 only when the audit store answers (writes are
+  refused without it).
 - `GET /api/databases/:id/audit?before=<id>` — newest first, 100 per page.
 - **Live feed** over Phoenix Channels (`FumehoodWeb.UserSocket` →
   `FumehoodWeb.AuditChannel`, topic `audit:<database>`): joining replies with

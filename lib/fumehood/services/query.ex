@@ -286,8 +286,12 @@ defmodule Fumehood.Services.Query do
   # the same as a failed insert so writes are refused cleanly.
   defp insert_entry(entry) do
     with {:ok, saved} <- AuditRepo.insert(entry) do
+      view = audit_view(saved)
+      # a second copy outside fumehood's own store: the journal (systemd) or
+      # container logs, which can be shipped off the VM
+      Logger.info("audit " <> JSON.encode!(view))
       # live feed (FumehoodWeb.AuditChannel)
-      FumehoodWeb.Endpoint.broadcast("audit:#{saved.database}", "entry", audit_view(saved))
+      FumehoodWeb.Endpoint.broadcast("audit:#{saved.database}", "entry", view)
       {:ok, saved}
     end
   rescue

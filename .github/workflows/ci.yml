@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    services:
+      pg16:
+        image: postgres:16-alpine
+        env: { POSTGRES_PASSWORD: fumehood, POSTGRES_DB: fumehood_target }
+        ports: ["55416:5432"]
+        options: --health-cmd pg_isready --health-interval 2s --health-retries 30
+      pg18:
+        image: postgres:18-alpine
+        env: { POSTGRES_PASSWORD: fumehood, POSTGRES_DB: fumehood_target }
+        ports: ["55418:5432"]
+        options: --health-cmd pg_isready --health-interval 2s --health-retries 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jdx/mise-action@v2 # Erlang, Elixir, Node, pnpm from mise.toml
+      - uses: actions/cache@v4
+        with:
+          path: |
+            deps
+            _build
+          key: mix-${{ hashFiles('mise.toml', 'mix.lock') }}
+      - run: mix deps.get
+      - run: mix format --check-formatted
+      - run: MIX_ENV=test mix compile --warnings-as-errors
+      - run: mix test
+      - working-directory: assets
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm format:check
+          pnpm build
