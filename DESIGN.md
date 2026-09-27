@@ -476,11 +476,15 @@ or 400:
 |---|---|
 | `GET /api/me` | the caller's identity |
 | `GET /api/databases` | configured databases (id, label, mode) |
-| `POST /api/databases/:id/run` `{sql}` | a read, or a write's dry run (count + preview) |
-| `POST /api/databases/:id/commit` `{sql, expected_count}` | backs up, then commits a write |
+| `POST /api/databases/:id/run` `{sql}` | a read, or a write's dry run (count, preview, `rows_token`, `warnings`) |
+| `POST /api/databases/:id/commit` `{sql, expected_count, rows_token}` | backs up, then commits a write |
 | `GET /api/databases/:id/backups` | backups, newest first |
 | `POST /api/databases/:id/backups/:backup_id/restore` | dry run of the undo (with its SQL) |
-| `POST /api/databases/:id/backups/:backup_id/restore/commit` `{expected_count}` | commits the undo |
+| `POST /api/databases/:id/backups/:backup_id/restore/commit` `{expected_count, rows_token}` | commits the undo |
+
+Every `POST` must be `content-type: application/json` (else `415`), and in
+`ssh_tunnel` / `dev` mode every request must name a local host (else `403`):
+cross-site pages and DNS rebinding can't act as the person browsing.
 
 Values are made JSON-safe by column type OID (`Fumehood.Values`): uuid as
 text, bytea as `\x…`, numeric as an exact string, timestamps ISO 8601,

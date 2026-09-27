@@ -421,7 +421,7 @@ const when = (iso: string) => new Date(iso).toLocaleString();
 }
 .warnings {
   margin: 0;
-  padding-left: var(--bless-space-5);
+  padding-left: 1.25em;
 }
 .restore-sql {
   margin: var(--bless-space-2) 0 0;

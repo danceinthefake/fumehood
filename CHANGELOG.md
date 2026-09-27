@@ -1,5 +1,28 @@
 # Changelog
 
+## Unreleased
+
+Hardening after a production-readiness review.
+
+- **Fixed — data loss:** `INSERT … ON CONFLICT DO UPDATE` is blocked. It
+  overwrote rows without backing them up, and its undo deleted them.
+- **Fixed — security:** in `ssh_tunnel` / `dev` mode, requests must name a
+  local host, so a page using DNS rebinding can't act as you. API `POST`s
+  must be JSON, which cross-site forms can't send.
+- **Fixed — cancel:** a late cancel retry could stop the next query on the
+  same pooled connection, possibly someone else's. Cancels now only hit
+  their own transaction.
+- A commit changes exactly the rows its dry run showed (`rows_token`), not
+  just as many.
+- A restore never overwrites later changes: it's refused if the rows
+  changed since the commit, or were already restored.
+- Results are streamed; reads stop at about 10 MB, and oversized writes are
+  refused without loading every row.
+- Dry runs warn about triggers and cascading foreign keys, which change
+  other tables that aren't backed up.
+- Audit entries are also logged (journal / container logs); `/health`
+  checks the audit store; CI workflow.
+
 ## 0.1.0 — 2026-09-27
 
 First release.
