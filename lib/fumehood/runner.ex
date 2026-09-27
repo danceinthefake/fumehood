@@ -12,6 +12,9 @@ defmodule Fumehood.Runner do
     * `:lock_timeout` — ms, default 5_000
     * `:max_rows` — rows returned by a read / changed by a write, default 1000
     * `:preview` — rows shown from a write dry run, default 20
+    * `:prepare` — `fn tx -> :ok | {:error, reason} end`, run first inside
+      the transaction (used by `Fumehood.Restore` to load a backup into a
+      temporary table)
   """
 
   alias Fumehood.Backup
@@ -64,7 +67,7 @@ defmodule Fumehood.Runner do
 
     in_transaction(conn, opts, :rollback, fn tx ->
       with {:ok, _table} <- table_info(tx, statement),
-           {:ok, result} <- query(tx, statement.sql <> "\nRETURNING *"),
+           {:ok, result} <- query(tx, statement.sql <> "\nRETURNING #{target(statement)}.*"),
            :ok <- within_limit(result.num_rows, opts[:max_rows]) do
         {:ok,
          %{
@@ -199,7 +202,7 @@ defmodule Fumehood.Runner do
     returning =
       case pk do
         [] -> "NULL"
-        pk -> Enum.map_join(pk, ", ", fn {column, _} -> "#{quote_ident(column)}::text" end)
+        pk -> Enum.map_join(pk, ", ", &"#{target(statement)}.#{quote_ident(elem(&1, 0))}::text")
       end
 
     with {:ok, result} <- query(tx, statement.sql <> "\nRETURNING " <> returning) do
@@ -284,6 +287,12 @@ defmodule Fumehood.Runner do
         "The data changed since the dry run (#{detail}). Nothing was committed; run the dry run again."
       )
 
+  # How RETURNING refers to the target table: its alias, or its bare name.
+  # Qualifying matters when the statement joins other tables
+  # (UPDATE … FROM, DELETE … USING) that have columns with the same names.
+  defp target(%Statement{alias: nil, table: {_schema, name}}), do: quote_ident(name)
+  defp target(%Statement{alias: alias}), do: quote_ident(alias)
+
   defp quote_ident(name), do: ~s(") <> String.replace(name, ~s("), ~s("")) <> ~s(")
 
   defp within_limit(count, max) when count <= max, do: :ok
@@ -304,7 +313,9 @@ defmodule Fumehood.Runner do
       Postgrex.query!(tx, "SET LOCAL statement_timeout = #{opts[:statement_timeout]}", [])
       Postgrex.query!(tx, "SET LOCAL lock_timeout = #{opts[:lock_timeout]}", [])
 
-      case fun.(tx) do
+      prepare = opts[:prepare] || fn _tx -> :ok end
+
+      case with(:ok <- prepare.(tx), do: fun.(tx)) do
         {:ok, value} when mode == :rollback -> Postgrex.rollback(tx, {:ok, value})
         {:ok, value} -> value
         {:error, reason} -> Postgrex.rollback(tx, {:error, reason})

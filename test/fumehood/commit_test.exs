@@ -78,6 +78,21 @@ defmodule Fumehood.CommitTest do
     assert rows(conn, ~s[SELECT count(*) FROM "Odd Name"]) == [[1]]
   end
 
+  test "UPDATE … FROM a table with the same column names", %{conn: conn, tmp_dir: dir} do
+    Postgrex.query!(conn, "CREATE TABLE renames (id int PRIMARY KEY, name text)", [])
+    Postgrex.query!(conn, "INSERT INTO renames VALUES (1, 'one'), (2, 'two')", [])
+
+    assert {:ok, %{count: 2, backup: %{csv: csv}}} =
+             dry_then_commit(
+               conn,
+               "UPDATE users u SET name = r.name FROM renames r WHERE u.id = r.id",
+               dir
+             )
+
+    assert rows(conn, "SELECT name FROM users WHERE id <= 2 ORDER BY id") == [["one"], ["two"]]
+    assert File.read!(csv) =~ "1,user 1,u1@x.com"
+  end
+
   test "a statement touching no rows commits with a header-only backup", %{
     conn: conn,
     tmp_dir: dir

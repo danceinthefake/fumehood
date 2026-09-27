@@ -13,12 +13,14 @@ defmodule Fumehood.Safety do
     @moduledoc "A statement that passed the rules."
 
     @enforce_keys [:kind, :command]
-    defstruct [:kind, :command, :table, :sql, :ast]
+    defstruct [:kind, :command, :table, :alias, :sql, :ast]
 
     @type t :: %__MODULE__{
             kind: :read | :write,
             command: :select | :explain | :show | :insert | :update | :delete,
             table: {schema :: String.t() | nil, name :: String.t()} | nil,
+            # the target table's alias in the statement (`UPDATE users AS u`), if any
+            alias: String.t() | nil,
             # the statement exactly as written, without a trailing `;`
             sql: String.t(),
             ast: term()
@@ -259,8 +261,18 @@ defmodule Fumehood.Safety do
   defp read(command, node), do: {:ok, %Statement{kind: :read, command: command, ast: node}}
 
   defp write(command, relation, node) do
-    {:ok, %Statement{kind: :write, command: command, table: table(relation), ast: node}}
+    {:ok,
+     %Statement{
+       kind: :write,
+       command: command,
+       table: table(relation),
+       alias: alias_name(relation),
+       ast: node
+     }}
   end
+
+  defp alias_name(%{alias: %{aliasname: name}}) when name != "", do: name
+  defp alias_name(_relation), do: nil
 
   defp table(%{schemaname: "", relname: name}), do: {nil, name}
   defp table(%{schemaname: schema, relname: name}), do: {schema, name}

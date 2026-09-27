@@ -195,12 +195,27 @@ allowed to restore, and retention (below) must be kept.
 - `INSERT` needs no before-image; fumehood records the new rows' primary keys
   so they can be undone.
 
-**Restore:** for each commit, fumehood shows the backed-up rows and
-**generates restore SQL** — load the CSV into a temporary table with
-`COPY FROM`, then `INSERT` the deleted rows back, `UPDATE` the changed rows
-to their old values by primary key, `DELETE` inserted rows.
-The restore runs through fumehood like any write: dry run → confirm →
-commit (and gets its own backup).
+**Restore** (`Fumehood.Restore`): an undo is an ordinary statement generated
+from the backup and run through `Fumehood.Runner` — the same dry run, key
+checks, row limit and **its own backup** (with `restore_of` in its metadata,
+so a restore can itself be undone):
+
+| backup of | undo statement |
+|---|---|
+| `DELETE` | `INSERT INTO t OVERRIDING SYSTEM VALUE SELECT * FROM fumehood_restore` |
+| `UPDATE` | `UPDATE t SET (cols) = ROW(r.cols) FROM fumehood_restore r WHERE (t.pk) = (r.pk)` |
+| `INSERT` | `DELETE FROM t WHERE (pk) IN (SELECT * FROM fumehood_restore)` |
+
+`fumehood_restore` is a temporary table created and filled inside the same
+transaction (`COPY … FROM STDIN` from the CSV, or the recorded keys cast to
+the key column types) and dropped when it ends. The restore dry run shows
+the generated SQL and is **blocked** if it can't reach every backed-up row
+(rows deleted, or their key changed, since the backup).
+
+Known limits (v1): a backup no longer fits after the table's columns
+changed (clear error, nothing applied); tables with generated columns can't
+be restored from a `DELETE` backup; an `UPDATE` that changed primary key
+values can't be undone by key (the dry run reports it as incomplete).
 
 **Rules this adds:**
 
@@ -435,7 +450,8 @@ modes; Cloud Run is an optional later target.
 
 ## 10. Milestones
 
-1. **Core safety, no UI:** parser rules (§5.2) + read path + write dry run
+1. ✅ **Core safety, no UI** (done 2026-09-27; `Fumehood.Safety`,
+   `Runner`, `Backup`, `Restore`, 92 tests on Postgres 16 + 18): parser rules (§5.2) + read path + write dry run
    + backup-before-change and restore SQL (§5.4) against a test Postgres
    (16 and 18), with tests for every rule (including tricky
    inputs: comments, CTEs with writes, `SELECT` calling side-effect
