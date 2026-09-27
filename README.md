@@ -40,3 +40,7 @@ The UI (`assets/`, Vue + [blessing-ui](../blessing-ui)) is built into
 `mise exec -- pnpm dev` in `assets/` (Vite on :5173, `/api` forwarded to
 :4000). `FUMEHOOD_DEV_USER=you@example.com` sets who you are in development.
 
+
+## License
+
+MIT — see [LICENSE](LICENSE).
