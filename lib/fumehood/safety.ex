@@ -29,6 +29,7 @@ defmodule Fumehood.Safety do
 
   @type rule ::
           :parse_error
+          | :too_long
           | :empty
           | :multiple_statements
           | :missing_where
@@ -57,6 +58,9 @@ defmodule Fumehood.Safety do
   )
   @denied_prefixes ~w(dblink lo_ pg_advisory pg_try_advisory)
 
+  # Submitted SQL is parsed in-process; cap its size at the trust boundary.
+  @max_sql_bytes 100_000
+
   @dml [:insert_stmt, :update_stmt, :delete_stmt, :merge_stmt]
   @maintenance [:copy_stmt, :vacuum_stmt, :cluster_stmt, :reindex_stmt, :lock_stmt]
   @transaction_control [:transaction_stmt, :variable_set_stmt]
@@ -66,6 +70,10 @@ defmodule Fumehood.Safety do
   Checks one SQL text. Returns the classified statement, or why it is blocked.
   """
   @spec check(String.t()) :: {:ok, Statement.t()} | {:error, blocked()}
+  def check(sql) when byte_size(sql) > @max_sql_bytes do
+    blocked(:too_long, "The statement is longer than #{div(@max_sql_bytes, 1000)} KB.")
+  end
+
   def check(sql) when is_binary(sql) do
     with {:ok, node, text} <- parse_single(sql),
          :ok <- no_denied_functions(node),

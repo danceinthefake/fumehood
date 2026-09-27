@@ -104,6 +104,7 @@ is blocked).
 | `UPDATE` / `DELETE` without `WHERE` | **blocked** |
 | user-written `RETURNING` on a write | **blocked** — fumehood adds its own to preview and back up rows |
 | more than one statement in one submission | **blocked** (one statement at a time) |
+| SQL longer than 100 KB | **blocked** before parsing |
 | data-changing `WITH` clauses (`WITH … AS (INSERT/UPDATE/DELETE …)`) | **blocked** |
 | `SELECT … INTO`, `SELECT … FOR UPDATE / FOR SHARE` | **blocked** |
 | `EXPLAIN ANALYZE` of a write | **blocked** — it executes the write with no backup |
@@ -480,6 +481,11 @@ read / write), Query tab (editor, Ctrl+Enter, result table, or a dry-run
 panel with "Commit N rows" + confirm dialog; editing the SQL discards the
 dry run), Backups tab (list, restore plan with the generated SQL, confirm).
 blessing-ui comes from npm (`blessing-ui` ^0.1.0).
+
+Browser hardening: the UI shell is served with a Content-Security-Policy
+(own scripts, styles, API and WebSocket only; Google Fonts; no framing,
+`base-uri` / `form-action` none) plus Phoenix's secure headers; API
+responses carry `nosniff`.
 
 **Decided** — own store: **SQLite** (`ecto_sqlite3`) by default, so the Docker
 image runs with a single volume and no extra database; Postgres as an option
