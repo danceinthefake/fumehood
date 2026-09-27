@@ -577,7 +577,7 @@ modes; Cloud Run is an optional later target.
    `install.sh` + sandboxed systemd unit, both modes; checked in a systemd
    Debian container), Docker image for try-out, docs in English + Bahasa
    Indonesia (README, install, setup), first release 0.1.0 (CHANGELOG, tag
-   `v0.1.0`).
+   `v0.1.0`); 0.1.1 with the production-readiness fixes (tag `v0.1.1`).
 
 ## 11. Decisions
 
