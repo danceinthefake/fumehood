@@ -37,6 +37,7 @@ defmodule Fumehood.Safety do
           | :upsert
           | :writing_cte
           | :denied_function
+          | :custom_function
           | :select_into
           | :row_locking
           | :explain_analyze_write
@@ -220,6 +221,26 @@ defmodule Fumehood.Safety do
       {:func_call, %{funcname: parts}}, acc -> [unqualified(parts) | acc]
       _, acc -> acc
     end)
+  end
+
+  @doc """
+  The functions a statement calls, as `{schema | nil, name}`.
+  """
+  @spec function_calls(Statement.t()) :: [{String.t() | nil, String.t()}]
+  def function_calls(%Statement{ast: ast}) do
+    ast
+    |> walk([], fn
+      {:func_call, %{funcname: parts}}, acc -> [qualified(parts) | acc]
+      _, acc -> acc
+    end)
+    |> Enum.uniq()
+  end
+
+  defp qualified(parts) do
+    case Enum.map(parts, fn %{node: {:string, %{sval: name}}} -> name end) do
+      [name] -> {nil, name}
+      names -> names |> Enum.take(-2) |> List.to_tuple()
+    end
   end
 
   defp unqualified(parts) do

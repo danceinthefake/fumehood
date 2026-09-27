@@ -51,9 +51,12 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public
   eksplisit untuk berjaga-jaga kalau database Anda mencabutnya.
 - Tanpa `CREATE`, tanpa `TRUNCATE`, bukan pemilik tabel: fumehood memblokir
   DDL, dan role-nya pun tidak bisa menjalankannya.
-- Backup hanya mencakup tabel tujuan. Trigger, foreign key yang cascade, dan
-  function bisa ikut mengubah tabel lain; dry run memberi peringatan soal
-  trigger dan cascade, dan perubahan di tabel lain itu tidak bisa di-restore.
+- Backup hanya mencakup tabel tujuan. Trigger dan foreign key yang cascade
+  bisa ikut mengubah tabel lain; dry run memberi peringatan soal keduanya,
+  dan perubahan di tabel lain itu tidak bisa di-restore. Karena alasan yang
+  sama, perubahan tidak boleh memanggil function buatan sendiri kecuali
+  function itu dideklarasikan `STABLE` atau `IMMUTABLE` (function bawaan
+  Postgres boleh).
 
 Hak akses persis seperti di atas diuji (`test/fumehood_web/enforcement_test.exs`):
 dry run, commit dengan backup, dan restore dijalankan sebagai role yang hanya

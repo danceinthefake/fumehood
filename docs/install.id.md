@@ -62,17 +62,17 @@ mesin sendiri, jangan pernah di server.
 ### 1. Build release
 
 ```sh
-scripts/build-release.sh    # → dist/fumehood-0.1.1.tar.gz
+scripts/build-release.sh    # → dist/fumehood-0.1.2.tar.gz
 ```
 
 ### 2. Pasang di VM
 
 ```sh
-gcloud compute scp dist/fumehood-0.1.1.tar.gz fumehood:~ --tunnel-through-iap
+gcloud compute scp dist/fumehood-0.1.2.tar.gz fumehood:~ --tunnel-through-iap
 gcloud compute ssh fumehood --tunnel-through-iap
 
 # di VM:
-mkdir fumehood && tar -xzf fumehood-0.1.1.tar.gz -C fumehood
+mkdir fumehood && tar -xzf fumehood-0.1.2.tar.gz -C fumehood
 sudo fumehood/install.sh ssh_tunnel     # atau: iap
 ```
 
@@ -80,7 +80,7 @@ sudo fumehood/install.sh ssh_tunnel     # atau: iap
 
 | Path                                   | Isi                                              |
 |----------------------------------------|--------------------------------------------------|
-| `/opt/fumehood` → `/opt/fumehood-0.1.1`| release-nya (milik root)                         |
+| `/opt/fumehood` → `/opt/fumehood-0.1.2`| release-nya (milik root)                         |
 | `/etc/fumehood/fumehood.toml`          | daftar database (`0640 root:fumehood`)           |
 | `/etc/fumehood/fumehood.env`           | rahasia dan pengaturan (`0600 root`)             |
 | `/var/lib/fumehood/`                   | audit log dan backup (`0700 fumehood`)           |

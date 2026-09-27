@@ -49,9 +49,11 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public
   case your databases revoke that.
 - No `CREATE`, no `TRUNCATE`, no ownership: fumehood blocks DDL, and the role
   can't run it either.
-- Backups cover the target table only. Triggers, cascading foreign keys and
-  functions can change other tables too; the dry run warns about triggers
-  and cascades, and those other changes can't be restored.
+- Backups cover the target table only. Triggers and cascading foreign keys
+  can change other tables too; the dry run warns about them, and those other
+  changes can't be restored. For the same reason, a change can't call your
+  own functions unless they're declared `STABLE` or `IMMUTABLE` (Postgres's
+  built-in functions are fine).
 
 These exact grants are covered by a test (`test/fumehood_web/enforcement_test.exs`),
 which runs a dry run, a commit with backup, and a restore as a role that has

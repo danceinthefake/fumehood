@@ -115,6 +115,7 @@ is blocked).
 | transaction control (`BEGIN`, `COMMIT`, `SET`, `SAVEPOINT`…) typed by the user | **blocked** — fumehood owns the transaction |
 | everything else (`DO`, `CALL`, `LISTEN`, `DISCARD`, …) | **blocked** |
 | functions with side effects or that run SQL from a string (`pg_terminate_backend`, `pg_cancel_backend`, `pg_reload_conf`, `set_config`, `pg_notify`, `pg_read_file`, `query_to_xml`, `dblink*`, `lo_*`, `pg_advisory*` …), anywhere in the statement | **blocked** (deny-list) |
+| a write (`INSERT` / `UPDATE` / `DELETE`) calling a function that isn't part of Postgres and is `VOLATILE` (can change data) — it may write to other tables, which the backup can't cover | **blocked** at dry run and commit (looked up in `pg_proc`, by name) |
 
 ### 5.3 Always a transaction
 
@@ -233,8 +234,11 @@ match). Changes made to *other* tables — by triggers, or by foreign keys
 that cascade / set NULL / set default — aren't backed up and aren't undone;
 the dry run lists them as warnings (enabled user triggers on the table;
 foreign keys referencing it whose action fires for this command), and the
-UI shows them in red above the commit button. User-defined functions called
-by the statement can also write elsewhere; fumehood can't see into them.
+UI shows them in red above the commit button. Functions called by a write
+could also change other tables, so volatile functions outside Postgres itself
+are blocked (§5.2). Not checked: user-defined operators, casts and column
+defaults, which can call such functions without naming them in the
+statement.
 
 **Rules this adds:**
 
@@ -577,7 +581,8 @@ modes; Cloud Run is an optional later target.
    `install.sh` + sandboxed systemd unit, both modes; checked in a systemd
    Debian container), Docker image for try-out, docs in English + Bahasa
    Indonesia (README, install, setup), first release 0.1.0 (CHANGELOG, tag
-   `v0.1.0`); 0.1.1 with the production-readiness fixes (tag `v0.1.1`).
+   `v0.1.0`); 0.1.1 with the production-readiness fixes (tag `v0.1.1`); 0.1.2 blocks
+   custom volatile functions in writes (tag `v0.1.2`).
 
 ## 11. Decisions
 

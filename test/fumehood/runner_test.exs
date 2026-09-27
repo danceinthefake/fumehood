@@ -139,6 +139,48 @@ defmodule Fumehood.RunnerTest do
                Runner.dry_run(conn, statement!("DELETE FROM users WHERE id = 1"))
     end
 
+    test "custom functions that can change data are blocked", %{conn: conn, schema: schema} do
+      Postgrex.query!(
+        conn,
+        "CREATE FUNCTION audit_me(i int) RETURNS text LANGUAGE sql AS $$ INSERT INTO logs VALUES ('x') RETURNING 'y' $$",
+        []
+      )
+
+      Postgrex.query!(
+        conn,
+        "CREATE FUNCTION shout(t text) RETURNS text LANGUAGE sql IMMUTABLE AS $$ SELECT upper(t) $$",
+        []
+      )
+
+      for sql <- [
+            "UPDATE users SET name = audit_me(id) WHERE id = 1",
+            ~s{DELETE FROM users WHERE id = 1 AND "#{schema}".audit_me(id) = 'y'},
+            "INSERT INTO users (id, name) VALUES (99, audit_me(1))"
+          ] do
+        assert {:error, {:blocked, :custom_function, message}} =
+                 Runner.dry_run(conn, statement!(sql))
+
+        assert message =~ "audit_me"
+
+        assert {:error, {:blocked, :custom_function, _}} =
+                 Runner.commit(conn, statement!(sql),
+                   expected_count: 1,
+                   backup_dir: System.tmp_dir!()
+                 )
+      end
+
+      assert count(conn, "logs") == [[2]]
+
+      # built-ins and non-volatile custom functions are fine
+      assert {:ok, %{count: 1}} =
+               Runner.dry_run(
+                 conn,
+                 statement!(
+                   "UPDATE users SET name = shout(lower(name)) || now()::text WHERE id = 1"
+                 )
+               )
+    end
+
     test "preview is limited", %{conn: conn} do
       assert {:ok, %{count: 30, preview: preview}} =
                Runner.dry_run(conn, statement!("DELETE FROM users WHERE id > 0"), preview: 3)

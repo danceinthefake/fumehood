@@ -24,6 +24,7 @@ defmodule Fumehood.Runner do
   """
 
   alias Fumehood.Backup
+  alias Fumehood.Safety
   alias Fumehood.Safety.Statement
 
   # The table named by $1 (schema or NULL) and $2, resolved like Postgres
@@ -108,7 +109,8 @@ defmodule Fumehood.Runner do
     {max, preview} = {opts[:max_rows], opts[:preview]}
 
     in_transaction(conn, opts, :rollback, fn tx ->
-      with {:ok, table} <- table_info(tx, statement) do
+      with :ok <- no_custom_functions(tx, statement),
+           {:ok, table} <- table_info(tx, statement) do
         # RETURNING the key (as text) first, then the whole row for the preview.
         k = length(table.pk)
 
@@ -173,7 +175,8 @@ defmodule Fumehood.Runner do
     Keyword.fetch!(opts, :backup_dir)
 
     in_transaction(conn, opts, :commit, fn tx ->
-      with {:ok, table} <- table_info(tx, statement) do
+      with :ok <- no_custom_functions(tx, statement),
+           {:ok, table} <- table_info(tx, statement) do
         commit_change(tx, statement, table, opts)
       end
     end)
@@ -403,6 +406,44 @@ defmodule Fumehood.Runner do
 
     if map_size(types) == length(names),
       do: %{relation: relation, pk: Enum.map(names, &{&1, types[&1]})}
+  end
+
+  # A function that isn't part of Postgres and can change data (volatile)
+  # may write to other tables, which the backup can't cover. Matched by name
+  # (any overload), so it errs on the side of blocking.
+  # ponytail: user-defined operators, casts and column defaults can call such
+  # functions too; not checked (DESIGN.md §5.4).
+  defp no_custom_functions(tx, statement) do
+    case Enum.unzip(Safety.function_calls(statement)) do
+      {[], []} ->
+        :ok
+
+      {schemas, names} ->
+        sql = """
+        SELECT p.oid::regproc::text
+        FROM unnest($1::text[], $2::text[]) f(schema, name)
+        JOIN pg_proc p ON p.proname = f.name
+        JOIN pg_namespace n ON n.oid = p.pronamespace
+        WHERE p.provolatile = 'v'
+          AND n.nspname NOT IN ('pg_catalog', 'information_schema')
+          AND (f.schema IS NULL OR n.nspname = f.schema)
+        LIMIT 1
+        """
+
+        case query(tx, sql, [schemas, names]) do
+          {:ok, %{rows: []}} ->
+            :ok
+
+          {:ok, %{rows: [[name]]}} ->
+            blocked(
+              :custom_function,
+              "Function #{name}() isn't built into Postgres and can change data; what it changes can't be backed up. Changes may only call Postgres's own functions."
+            )
+
+          error ->
+            error
+        end
+    end
   end
 
   # What else changes when this table does, outside the backup: enabled user

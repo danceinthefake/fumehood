@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.2 — 2026-09-27
+
+- **Fixed — data loss:** an `INSERT` / `UPDATE` / `DELETE` that calls a
+  function of your own marked `VOLATILE` (the default) is blocked. Such a
+  function can write to other tables, which the backup can't cover.
+  Postgres's built-in functions, and your `STABLE` / `IMMUTABLE` ones,
+  still work.
+
 ## 0.1.1 — 2026-09-27
 
 Hardening after a production-readiness review.
