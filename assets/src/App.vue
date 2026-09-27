@@ -128,7 +128,7 @@ async function commit() {
   if (!db.value || !dryRun.value) return;
   committing.value = true;
   confirmCommit.value = false; // close the dialog so Cancel is reachable while it runs
-  const res = await api.commit(db.value.id, sql.value, dryRun.value.count, startClock());
+  const res = await api.commit(db.value.id, sql.value, dryRun.value, startClock());
   stopClock();
   committing.value = false;
   confirmCommit.value = false;
@@ -192,7 +192,7 @@ async function planRestore(backup: Backup) {
 async function restore() {
   if (!db.value || !restoring.value || !restorePlan.value) return;
   committing.value = true;
-  const res = await api.restoreCommit(db.value.id, restoring.value.id, restorePlan.value.count);
+  const res = await api.restoreCommit(db.value.id, restoring.value.id, restorePlan.value);
   committing.value = false;
   confirmRestore.value = false;
   restorePlan.value = null;

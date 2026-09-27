@@ -25,11 +25,13 @@ defmodule FumehoodWeb.ApiController do
     end
   end
 
-  # POST /api/databases/:id/commit  {"sql": "...", "expected_count": 3}
+  # POST /api/databases/:id/commit
+  #   {"sql": "...", "expected_count": 3, "rows_token": "<from the dry run>"}
   def commit(conn, %{"id" => id} = params) do
     with {:ok, sql} <- sql(params),
          {:ok, count} <- expected_count(params),
          {:ok, opts} <- query_opts(params),
+         opts = opts ++ rows_token(params),
          {:ok, result} <- Query.commit(id, sql, count, conn.assigns.identity, opts) do
       json(conn, result)
     end
@@ -59,10 +61,12 @@ defmodule FumehoodWeb.ApiController do
     end
   end
 
-  # POST /api/databases/:id/backups/:backup_id/restore/commit  {"expected_count": 3}
+  # POST /api/databases/:id/backups/:backup_id/restore/commit
+  #   {"expected_count": 3, "rows_token": "<from the restore dry run>"}
   def restore_commit(conn, %{"id" => id, "backup_id" => backup_id} = params) do
     with {:ok, count} <- expected_count(params),
          {:ok, opts} <- query_opts(params),
+         opts = opts ++ rows_token(params),
          {:ok, result} <-
            Query.restore_commit(id, backup_id, count, conn.assigns.identity, opts) do
       json(conn, result)
@@ -84,6 +88,9 @@ defmodule FumehoodWeb.ApiController do
   end
 
   defp query_opts(_params), do: {:ok, []}
+
+  defp rows_token(%{"rows_token" => token}) when is_binary(token), do: [rows_token: token]
+  defp rows_token(_params), do: []
 
   defp sql(%{"sql" => sql}) when is_binary(sql), do: {:ok, sql}
   defp sql(_), do: {:error, {:bad_request, "sql (a string) is required"}}

@@ -11,6 +11,7 @@ defmodule Fumehood.Runner do
     * `:statement_timeout` — ms, default 30_000
     * `:lock_timeout` — ms, default 5_000
     * `:max_rows` — rows returned by a read / changed by a write, default 1000
+    * `:max_result_bytes` — a read stops early past this size, default 10 MB
     * `:preview` — rows shown from a write dry run, default 20
     * `:on_backend` — `fn backend_pid -> any end`, called once the
       transaction has started, with its Postgres backend pid (used by
@@ -30,14 +31,25 @@ defmodule Fumehood.Runner do
                    ELSE format('%I.%I', $1::text, $2::text) END)
   """
 
-  @defaults [statement_timeout: 30_000, lock_timeout: 5_000, max_rows: 1000, preview: 20]
+  @defaults [
+    statement_timeout: 30_000,
+    lock_timeout: 5_000,
+    max_rows: 1000,
+    max_result_bytes: 10_000_000,
+    preview: 20
+  ]
+
+  # Rows come from Postgres in chunks of this many, so a huge result is never
+  # held in memory at once.
+  @chunk 100
 
   @type result :: %{columns: [String.t()], rows: [list()]}
   @type error :: {:blocked, atom(), String.t()} | {:db_error, String.t()}
 
   @doc """
-  Runs a read inside a `READ ONLY` transaction. SELECTs are capped at
-  `:max_rows`; `truncated` tells whether more rows existed.
+  Runs a read inside a `READ ONLY` transaction. Results are capped at
+  `:max_rows` rows and about `:max_result_bytes`; `truncated` tells whether
+  more existed.
   """
   @spec read(DBConnection.conn(), Statement.t(), keyword()) ::
           {:ok, %{columns: [String.t()], rows: [list()], truncated: boolean()}}
@@ -46,14 +58,23 @@ defmodule Fumehood.Runner do
     opts = Keyword.merge(@defaults, opts)
     max = opts[:max_rows]
 
+    max_bytes = opts[:max_result_bytes]
+
     in_transaction(conn, opts, :read_only, fn tx ->
-      with {:ok, result, types} <- typed_query(tx, read_sql(statement, max + 1)) do
+      collect = fn row, {rows, n, bytes, _more} ->
+        if n >= max or bytes >= max_bytes,
+          do: {:halt, {rows, n, bytes, true}},
+          else: {:cont, {[row | rows], n + 1, bytes + :erlang.external_size(row), false}}
+      end
+
+      with {:ok, {rows, _n, _bytes, more}, query} <-
+             reduce_rows(tx, read_sql(statement, max + 1), [], {[], 0, 0, false}, collect) do
         {:ok,
          %{
-           columns: result.columns || [],
-           types: types,
-           rows: Enum.take(result.rows || [], max),
-           truncated: length(result.rows || []) > max
+           columns: query.columns || [],
+           types: types(query),
+           rows: Enum.reverse(rows),
+           truncated: more
          }}
       end
     end)
@@ -62,25 +83,50 @@ defmodule Fumehood.Runner do
   @doc """
   Runs a write, counts and previews the rows it changes, then rolls back.
   Nothing is kept.
+
+  `rows_token` identifies exactly which rows an `UPDATE` / `DELETE` touched
+  (nil for `INSERT`, whose new keys aren't known until commit); pass it to
+  `commit/3` as `:expected_token`.
   """
   @spec dry_run(DBConnection.conn(), Statement.t(), keyword()) ::
-          {:ok, %{count: non_neg_integer(), columns: [String.t()], preview: [list()]}}
+          {:ok,
+           %{
+             count: non_neg_integer(),
+             columns: [String.t()],
+             preview: [list()],
+             rows_token: String.t() | nil
+           }}
           | {:error, error()}
   def dry_run(conn, %Statement{kind: :write} = statement, opts \\ []) do
     opts = Keyword.merge(@defaults, opts)
+    {max, preview} = {opts[:max_rows], opts[:preview]}
 
     in_transaction(conn, opts, :rollback, fn tx ->
-      with {:ok, _table} <- table_info(tx, statement),
-           {:ok, result, types} <-
-             typed_query(tx, statement.sql <> "\nRETURNING #{target(statement)}.*"),
-           :ok <- within_limit(result.num_rows, opts[:max_rows]) do
-        {:ok,
-         %{
-           count: result.num_rows,
-           columns: result.columns,
-           types: types,
-           preview: Enum.take(result.rows, opts[:preview])
-         }}
+      with {:ok, table} <- table_info(tx, statement) do
+        # RETURNING the key (as text) first, then the whole row for the preview.
+        k = length(table.pk)
+
+        collect = fn row, {keys, rows, n} ->
+          {key, rest} = Enum.split(row, k)
+          rows = if n < preview, do: [rest | rows], else: rows
+          acc = {[key | keys], rows, n + 1}
+          if n + 1 > max, do: {:halt, acc}, else: {:cont, acc}
+        end
+
+        sql =
+          statement.sql <> "\nRETURNING " <> returning(statement, table, "#{target(statement)}.*")
+
+        with {:ok, {keys, rows, n}, query} <- reduce_rows(tx, sql, [], {[], [], 0}, collect),
+             :ok <- within_limit(n, max) do
+          {:ok,
+           %{
+             count: n,
+             columns: Enum.drop(query.columns, k),
+             types: Enum.drop(types(query), k),
+             preview: Enum.reverse(rows),
+             rows_token: if(statement.command == :insert, do: nil, else: rows_token(keys))
+           }}
+        end
       end
     end)
   end
@@ -93,6 +139,10 @@ defmodule Fumehood.Runner do
     * `:expected_count` — the count the person confirmed from `dry_run/3`;
       if the statement would now change a different number of rows (or, for
       `UPDATE` / `DELETE`, different rows), nothing is committed
+
+  Optional `:expected_token` (the dry run's `rows_token`): for `UPDATE` /
+  `DELETE`, the rows must be exactly the ones the dry run touched — not just
+  as many. When the option is given, nil never matches.
     * `:backup_dir` — where the backup files go
 
   Optional: `:backup_id` (default `Backup.new_id/0`), `:meta` (map merged
@@ -173,9 +223,9 @@ defmodule Fumehood.Runner do
   end
 
   defp commit_change(tx, %Statement{command: :insert} = statement, table, opts) do
-    with {:ok, keys} <- run_returning_keys(tx, statement, table),
-         :ok <- same_count(length(keys), opts[:expected_count]),
+    with {:ok, keys} <- run_returning_keys(tx, statement, table, opts[:max_rows]),
          :ok <- within_limit(length(keys), opts[:max_rows]),
+         :ok <- same_count(length(keys), opts[:expected_count]),
          keys = if(table.pk == [], do: [], else: keys),
          {:ok, files} <- write_backup(statement, table, keys, nil, opts) do
       {:ok, %{count: opts[:expected_count], backup: files}}
@@ -183,12 +233,13 @@ defmodule Fumehood.Runner do
   end
 
   defp commit_change(tx, statement, table, opts) do
-    with {:ok, keys} <- probe_keys(tx, statement, table),
-         :ok <- same_count(length(keys), opts[:expected_count]),
+    with {:ok, keys} <- probe_keys(tx, statement, table, opts[:max_rows]),
          :ok <- within_limit(length(keys), opts[:max_rows]),
+         :ok <- same_count(length(keys), opts[:expected_count]),
+         :ok <- same_token(keys, opts),
          {:ok, csv} <- lock_and_export(tx, table, keys),
          {:ok, files} <- write_backup(statement, table, keys, csv, opts),
-         {:ok, changed} <- run_returning_keys(tx, statement, table),
+         {:ok, changed} <- run_returning_keys(tx, statement, table, opts[:max_rows]),
          :ok <- same_keys(keys, changed) do
       {:ok, %{count: length(changed), backup: files}}
     end
@@ -196,23 +247,57 @@ defmodule Fumehood.Runner do
 
   # Which rows the statement touches: run it in a savepoint returning the
   # keys, then undo it.
-  defp probe_keys(tx, statement, table) do
+  defp probe_keys(tx, statement, table, max) do
     Postgrex.query!(tx, "SAVEPOINT fumehood_probe", [])
-    result = run_returning_keys(tx, statement, table)
+    result = run_returning_keys(tx, statement, table, max)
     Postgrex.query!(tx, "ROLLBACK TO SAVEPOINT fumehood_probe", [])
     result
   end
 
-  # Keys come back as text so they are JSON-safe and comparable.
-  defp run_returning_keys(tx, statement, %{pk: pk}) do
-    returning =
-      case pk do
-        [] -> "NULL"
-        pk -> Enum.map_join(pk, ", ", &"#{target(statement)}.#{quote_ident(elem(&1, 0))}::text")
-      end
+  # Keys come back as text so they are JSON-safe and comparable. Stops one
+  # past `max` (the caller then refuses: too many rows).
+  defp run_returning_keys(tx, statement, table, max) do
+    collect = fn key, {keys, n} ->
+      acc = {[key | keys], n + 1}
+      if n + 1 > max, do: {:halt, acc}, else: {:cont, acc}
+    end
 
-    with {:ok, result} <- query(tx, statement.sql <> "\nRETURNING " <> returning) do
-      {:ok, result.rows}
+    sql = statement.sql <> "\nRETURNING " <> returning(statement, table, nil)
+
+    with {:ok, {keys, _n}, _query} <- reduce_rows(tx, sql, [], {[], 0}, collect) do
+      {:ok, if(table.pk == [], do: Enum.map(keys, fn _ -> [nil] end), else: Enum.reverse(keys))}
+    end
+  end
+
+  # The RETURNING list: the target's key columns as text, then `rest` if any.
+  defp returning(statement, %{pk: pk}, rest) do
+    keys = Enum.map(pk, fn {column, _} -> "#{target(statement)}.#{quote_ident(column)}::text" end)
+
+    case keys ++ List.wrap(rest) do
+      [] -> "NULL"
+      list -> Enum.join(list, ", ")
+    end
+  end
+
+  @doc false
+  # Which rows, as one opaque string (order doesn't matter).
+  def rows_token(keys),
+    do:
+      :crypto.hash(:sha256, keys |> Enum.sort() |> JSON.encode!())
+      |> Base.url_encode64(padding: false)
+
+  defp same_token(keys, opts) do
+    case Keyword.fetch(opts, :expected_token) do
+      :error ->
+        :ok
+
+      {:ok, nil} ->
+        blocked(:dry_run_required, "Run the dry run first, then commit the rows it showed.")
+
+      {:ok, token} ->
+        if token == rows_token(keys),
+          do: :ok,
+          else: changed_since_dry_run("other rows match the statement now")
     end
   end
 
@@ -303,11 +388,11 @@ defmodule Fumehood.Runner do
 
   defp within_limit(count, max) when count <= max, do: :ok
 
-  defp within_limit(count, max),
+  defp within_limit(_count, max),
     do:
       blocked(
         :too_many_rows,
-        "This would change #{count} rows; the limit is #{max}. Split it into smaller changes."
+        "This would change more than #{max} rows, the limit. Split it into smaller changes."
       )
 
   # Opens a transaction, applies the guardrails, runs `fun`, and ends it:
@@ -345,21 +430,34 @@ defmodule Fumehood.Runner do
     e in Postgrex.Error -> {:error, {:db_error, Exception.message(e)}}
   end
 
-  # Like query/3, plus each result column's type (for `Fumehood.Values`).
-  defp typed_query(tx, sql) do
-    case Postgrex.prepare_execute(tx, "", sql, []) do
-      {:ok, prepared, result} ->
-        {:ok, result, Enum.zip(prepared.result_types || [], prepared.result_oids || [])}
+  # Streams the result rows of `sql` through `fun` (reduce_while style) in
+  # chunks. Returns the accumulator and the prepared query (columns, types).
+  defp reduce_rows(tx, sql, params, acc, fun) do
+    with {:ok, query} <- Postgrex.prepare(tx, "", sql) do
+      acc =
+        tx
+        |> Postgrex.stream(query, params, max_rows: @chunk)
+        |> Stream.flat_map(& &1.rows)
+        |> Enum.reduce_while(acc, fun)
 
-      {:error, %Postgrex.Error{postgres: %{message: message}}} ->
-        {:error, {:db_error, message}}
-
-      {:error, error} ->
-        {:error, {:db_error, Exception.message(error)}}
+      {:ok, acc, query}
     end
+  rescue
+    e in Postgrex.Error -> db_error(e)
+  else
+    {:error, e} -> db_error(e)
+    ok -> ok
   end
 
-  defp query(tx, sql, params \\ []) do
+  defp db_error(%Postgrex.Error{postgres: %{message: message}}),
+    do: {:error, {:db_error, message}}
+
+  defp db_error(error), do: {:error, {:db_error, Exception.message(error)}}
+
+  # Each result column's type (for `Fumehood.Values`).
+  defp types(query), do: Enum.zip(query.result_types || [], query.result_oids || [])
+
+  defp query(tx, sql, params) do
     case Postgrex.query(tx, sql, params) do
       {:ok, result} -> {:ok, result}
       {:error, %Postgrex.Error{postgres: %{message: message}}} -> {:error, {:db_error, message}}

@@ -29,6 +29,16 @@ defmodule Fumehood.RunnerTest do
                Runner.read(conn, statement!("SELECT id, name FROM users WHERE id = 1"))
     end
 
+    test "stops early on big results and says so", %{conn: conn} do
+      {:ok, result} =
+        Runner.read(conn, statement!("SELECT repeat('x', 100000) FROM generate_series(1, 50)"),
+          max_result_bytes: 1_000_000
+        )
+
+      assert length(result.rows) in 9..11
+      assert result.truncated
+    end
+
     test "caps SELECT results at max_rows and says so", %{conn: conn} do
       {:ok, result} =
         Runner.read(conn, statement!("SELECT * FROM users ORDER BY id"), max_rows: 10)

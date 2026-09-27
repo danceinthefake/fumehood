@@ -126,17 +126,21 @@ swallow what is added (`SELECT * FROM (\n<stmt>\n) … LIMIT n`,
 `<stmt>\nRETURNING …`).
 
 - **Read path:** `BEGIN READ ONLY` + `SET LOCAL statement_timeout` +
-  `SET LOCAL lock_timeout`; results capped (auto `LIMIT 1000` when the
-  query has none, with "load more"). Postgres itself refuses any
+  `SET LOCAL lock_timeout`; results capped at 1000 rows (`LIMIT`) and about
+  10 MB (rows are streamed from Postgres in chunks of 100; fumehood stops
+  early and says the result is truncated). Postgres itself refuses any
   write inside a read-only transaction — a second wall behind the parser.
 - **Write path (dry run):** `BEGIN` → timeouts → primary-key check
-  (`UPDATE` / `DELETE`) → run the statement with `RETURNING *` appended →
-  count + preview the affected rows → row limit check → **`ROLLBACK`**.
-  Nothing is kept.
+  (`UPDATE` / `DELETE`) → run the statement with the key columns and `*`
+  in `RETURNING` → count + preview the affected rows (streamed; stops one
+  past the row limit) → **`ROLLBACK`**. Nothing is kept. The dry run returns
+  a `rows_token`: a hash of exactly which keys it touched.
 - **Commit:** after the person who wrote it confirms (§6.4), the same
-  statement runs again in a fresh transaction; if the affected row count differs from the
-  dry run beyond a threshold, fumehood rolls back and asks again — the data
-  changed in between.
+  statement runs again in a fresh transaction. If it would now change a
+  different number of rows — or, for `UPDATE` / `DELETE`, different rows
+  (the `rows_token` doesn't match) — fumehood rolls back and asks for a new
+  dry run: the data changed in between. A commit without the token is
+  refused.
 - An upper limit on rows a single write may change (default 1000); above
   it the statement is blocked and must be split.
 

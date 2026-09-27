@@ -63,7 +63,10 @@ defmodule Fumehood.Services.Query do
     end
   end
 
-  @doc "Commits a write whose dry run showed `expected_count` rows."
+  @doc """
+  Commits a write whose dry run showed `expected_count` rows. `opts[:rows_token]`
+  is the dry run's `rows_token`, required for `UPDATE` / `DELETE`.
+  """
   @spec commit(String.t(), String.t(), non_neg_integer(), identity()) ::
           {:ok, map()} | {:error, error()}
   def commit(db_id, sql, expected_count, identity, opts \\ []) do
@@ -83,6 +86,7 @@ defmodule Fumehood.Services.Query do
                    limits(db, on_backend) ++
                      [
                        expected_count: expected_count,
+                       expected_token: opts[:rows_token],
                        backup_dir: backup_dir(db),
                        backup_id: backup_id,
                        meta: %{user: identity.id, database: db.id}
@@ -150,6 +154,7 @@ defmodule Fumehood.Services.Query do
              %{
                sql: r.sql,
                count: r.count,
+               rows_token: r.rows_token,
                columns: r.columns,
                preview: Values.rows(r.preview, r.types)
              }}
@@ -183,6 +188,7 @@ defmodule Fumehood.Services.Query do
                    limits(db, on_backend) ++
                      [
                        expected_count: expected_count,
+                       expected_token: opts[:rows_token],
                        backup_dir: backup_dir(db),
                        backup_id: new_id,
                        meta: %{user: identity.id, database: db.id}
@@ -359,6 +365,7 @@ defmodule Fumehood.Services.Query do
       command: statement.command,
       table: format_table(statement.table),
       count: r.count,
+      rows_token: r.rows_token,
       columns: r.columns,
       preview: Values.rows(r.preview, r.types)
     }

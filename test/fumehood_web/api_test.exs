@@ -64,14 +64,23 @@ defmodule FumehoodWeb.ApiTest do
   test "dry run → commit → backups → restore", %{conn: conn, table: table} do
     sql = "UPDATE #{table} SET price = 0 WHERE n <= 2"
 
-    assert %{"kind" => "write", "command" => "update", "count" => 2, "preview" => preview} =
-             json_response(post_json(conn, "/api/databases/pg16/run", %{sql: sql}), 200)
+    assert %{
+             "kind" => "write",
+             "command" => "update",
+             "count" => 2,
+             "preview" => preview,
+             "rows_token" => token
+           } = json_response(post_json(conn, "/api/databases/pg16/run", %{sql: sql}), 200)
 
     assert Enum.all?(preview, fn [_id, _n, price | _] -> price == "0" end)
 
     assert %{"count" => 2, "backup_id" => backup_id} =
              json_response(
-               post_json(conn, "/api/databases/pg16/commit", %{sql: sql, expected_count: 2}),
+               post_json(conn, "/api/databases/pg16/commit", %{
+                 sql: sql,
+                 expected_count: 2,
+                 rows_token: token
+               }),
                200
              )
 
@@ -82,11 +91,14 @@ defmodule FumehoodWeb.ApiTest do
 
     path = "/api/databases/pg16/backups/#{backup_id}/restore"
 
-    assert %{"count" => 2, "sql" => "UPDATE" <> _} =
+    assert %{"count" => 2, "sql" => "UPDATE" <> _, "rows_token" => restore_token} =
              json_response(post_json(conn, path, %{}), 200)
 
     assert %{"count" => 2, "backup_id" => _} =
-             json_response(post_json(conn, path <> "/commit", %{expected_count: 2}), 200)
+             json_response(
+               post_json(conn, path <> "/commit", %{expected_count: 2, rows_token: restore_token}),
+               200
+             )
 
     assert %{"rows" => [[prices]]} =
              json_response(

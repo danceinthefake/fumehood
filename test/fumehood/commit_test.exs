@@ -26,11 +26,47 @@ defmodule Fumehood.CommitTest do
 
   defp dry_then_commit(conn, sql, dir, opts \\ []) do
     statement = statement!(sql)
-    {:ok, %{count: count}} = Runner.dry_run(conn, statement)
-    Runner.commit(conn, statement, [expected_count: count, backup_dir: dir] ++ opts)
+    {:ok, %{count: count, rows_token: token}} = Runner.dry_run(conn, statement)
+
+    Runner.commit(
+      conn,
+      statement,
+      [expected_count: count, expected_token: token, backup_dir: dir] ++ opts
+    )
   end
 
   defp rows(conn, sql), do: Postgrex.query!(conn, sql, []).rows
+
+  test "refuses when other rows match than the dry run showed, even as many",
+       %{conn: conn, tmp_dir: dir} do
+    statement = statement!("UPDATE users SET name = 'x' WHERE email LIKE 'stale%'")
+    rows(conn, "UPDATE users SET email = 'stale' WHERE id = 1")
+    {:ok, %{count: 1, rows_token: token}} = Runner.dry_run(conn, statement)
+
+    # between the dry run and the commit, row 1 stops matching and row 2 starts
+    rows(
+      conn,
+      "UPDATE users SET email = CASE id WHEN 1 THEN 'fresh' ELSE 'stale' END WHERE id <= 2"
+    )
+
+    assert {:error, {:blocked, :changed_since_dry_run, _}} =
+             Runner.commit(conn, statement,
+               expected_count: 1,
+               expected_token: token,
+               backup_dir: dir
+             )
+
+    assert rows(conn, "SELECT count(*) FROM users WHERE name = 'x'") == [[0]]
+  end
+
+  test "an UPDATE / DELETE without the dry run's token is refused", %{conn: conn, tmp_dir: dir} do
+    assert {:error, {:blocked, :dry_run_required, _}} =
+             Runner.commit(conn, statement!("DELETE FROM users WHERE id = 1"),
+               expected_count: 1,
+               expected_token: nil,
+               backup_dir: dir
+             )
+  end
 
   test "UPDATE: backs up the old rows, then changes them", %{conn: conn, tmp_dir: dir} do
     assert {:ok, %{count: 3, backup: %{csv: csv, json: json}}} =

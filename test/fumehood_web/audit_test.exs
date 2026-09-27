@@ -59,9 +59,12 @@ defmodule FumehoodWeb.AuditTest do
   test "a commit writes `started` before it runs, then its outcome", %{conn: conn, table: table} do
     sql = "DELETE FROM #{table} WHERE id = 1"
 
+    %{"rows_token" => token} =
+      conn |> post("/api/databases/pg16/run", %{sql: sql}) |> json_response(200)
+
     %{"backup_id" => backup_id} =
       conn
-      |> post("/api/databases/pg16/commit", %{sql: sql, expected_count: 1})
+      |> post("/api/databases/pg16/commit", %{sql: sql, expected_count: 1, rows_token: token})
       |> json_response(200)
 
     assert [
@@ -94,17 +97,19 @@ defmodule FumehoodWeb.AuditTest do
   end
 
   test "restores are recorded with the backup they undo", %{conn: conn, table: table} do
+    sql = "UPDATE #{table} SET n = 0 WHERE id = 3"
+
+    %{"rows_token" => token} =
+      conn |> post("/api/databases/pg16/run", %{sql: sql}) |> json_response(200)
+
     %{"backup_id" => backup_id} =
       conn
-      |> post("/api/databases/pg16/commit", %{
-        sql: "UPDATE #{table} SET n = 0 WHERE id = 3",
-        expected_count: 1
-      })
+      |> post("/api/databases/pg16/commit", %{sql: sql, expected_count: 1, rows_token: token})
       |> json_response(200)
 
     path = "/api/databases/pg16/backups/#{backup_id}/restore"
-    post(conn, path, %{})
-    post(conn, path <> "/commit", %{expected_count: 1})
+    %{"rows_token" => restore_token} = conn |> post(path, %{}) |> json_response(200)
+    post(conn, path <> "/commit", %{expected_count: 1, rows_token: restore_token})
 
     assert [
              %{"action" => "restore_commit", "outcome" => "ok", "restore_of" => ^backup_id},
