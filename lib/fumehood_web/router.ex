@@ -14,6 +14,7 @@ defmodule FumehoodWeb.Router do
 
   pipeline :api do
     plug :accepts, ["json"]
+    plug :require_json
     plug :put_secure_browser_headers
     plug FumehoodWeb.Plugs.Identity
   end
@@ -35,6 +36,24 @@ defmodule FumehoodWeb.Router do
   scope "/", FumehoodWeb do
     pipe_through :browser
     get "/", PageController, :index
+  end
+
+  # A cross-site form or `no-cors` fetch can only send simple content types;
+  # insisting on JSON means a browser must ask first (CORS), and fumehood
+  # never allows it. Blocks cross-site requests made as the logged-in person.
+  defp require_json(%{method: "GET"} = conn, _opts), do: conn
+
+  defp require_json(conn, _opts) do
+    case get_req_header(conn, "content-type") do
+      ["application/json" <> _] ->
+        conn
+
+      _ ->
+        conn
+        |> put_resp_content_type("application/json")
+        |> send_resp(415, ~s({"error":{"rule":"bad_request","message":"send JSON"}}))
+        |> halt()
+    end
   end
 
   # Load balancer health check; no identity, no data.

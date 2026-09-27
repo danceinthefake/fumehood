@@ -43,8 +43,9 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<Re
   try {
     const res = await fetch(`/api${path}`, {
       method,
-      headers: body ? { "content-type": "application/json" } : {},
-      body: body ? JSON.stringify(body) : undefined,
+      // The API only accepts JSON on POST (cross-site request protection).
+      headers: method === "GET" ? {} : { "content-type": "application/json" },
+      body: method === "GET" ? undefined : JSON.stringify(body ?? {}),
     });
     const json = await res.json();
     return res.ok ? { ok: true, data: json } : { ok: false, error: json.error };

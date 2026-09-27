@@ -33,6 +33,11 @@ defmodule FumehoodWeb.ConnCase do
 
   setup tags do
     Fumehood.DataCase.setup_sandbox(tags)
-    {:ok, conn: Phoenix.ConnTest.build_conn()}
+    # The API only takes JSON (FumehoodWeb.Router :require_json).
+    conn =
+      Phoenix.ConnTest.build_conn()
+      |> Plug.Conn.put_req_header("content-type", "application/json")
+
+    {:ok, conn: conn}
   end
 end

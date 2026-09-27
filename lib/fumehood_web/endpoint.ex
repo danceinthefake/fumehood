@@ -17,6 +17,8 @@ defmodule FumehoodWeb.Endpoint do
     websocket: [connect_info: [:peer_data, :x_headers]],
     longpoll: false
 
+  plug FumehoodWeb.Plugs.AllowedHosts
+
   # Serve at "/" the static files from "priv/static" directory.
   #
   # When code reloading is disabled (e.g., in production),

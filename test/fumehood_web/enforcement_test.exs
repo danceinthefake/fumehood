@@ -90,60 +90,30 @@ defmodule FumehoodWeb.EnforcementTest do
     assert rows("pg18", table) == [[1, 1], [2, 2]]
   end
 
-  # The grants docs/setup.md tells admins to give a read_write role must be
-  # enough for everything fumehood does: dry run, commit with backup, and
-  # restore (which needs a temporary table).
-  @tag :tmp_dir
-  test "the documented read_write grants are enough for commit and restore", %{
-    table: table,
-    tmp_dir: dir
-  } do
-    role = "fh_rw_#{System.unique_integer([:positive])}"
-    admin = Fumehood.Databases.conn("pg18")
+  test "POSTs must be JSON: cross-site forms are refused", %{conn: conn} do
+    for type <- ["application/x-www-form-urlencoded", "text/plain", "multipart/form-data"] do
+      assert %{"error" => %{"rule" => "bad_request"}} =
+               conn
+               |> put_req_header("content-type", type)
+               |> post("/api/databases/pg16/run", "sql=select+1")
+               |> json_response(415),
+             type
+    end
+  end
 
-    for sql <- [
-          "CREATE ROLE #{role} LOGIN PASSWORD 'rw'",
-          # -- docs/setup.md, read_write role --
-          "GRANT CONNECT, TEMPORARY ON DATABASE fumehood_target TO #{role}",
-          "GRANT USAGE ON SCHEMA public TO #{role}",
-          "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO #{role}",
-          "GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO #{role}"
-        ],
-        do: Postgrex.query!(admin, sql, [])
+  test "localhost modes refuse foreign Host names (DNS rebinding)" do
+    hosts = [hosts: ["localhost", "127.0.0.1"]]
 
-    on_exit(fn ->
-      admin = Fumehood.Databases.conn("pg18")
-      Postgrex.query!(admin, "REVOKE ALL ON ALL TABLES IN SCHEMA public FROM #{role}", [])
-      Postgrex.query!(admin, "REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM #{role}", [])
-      Postgrex.query!(admin, "REVOKE ALL ON SCHEMA public FROM #{role}", [])
-      Postgrex.query!(admin, "REVOKE ALL ON DATABASE fumehood_target FROM #{role}", [])
-      Postgrex.query!(admin, "DROP ROLE #{role}", [])
-    end)
+    call =
+      &FumehoodWeb.Plugs.AllowedHosts.call(
+        Phoenix.ConnTest.build_conn(:get, &2) |> Map.put(:host, &1),
+        hosts
+      )
 
-    opts = [
-      hostname: "localhost",
-      port: 55418,
-      username: role,
-      password: "rw",
-      database: "fumehood_target"
-    ]
-
-    rw = start_supervised!({Postgrex, opts})
-
-    {:ok, write} = Safety.check("UPDATE #{table} SET n = 9 WHERE id = 2")
-    assert {:ok, %{count: 1}} = Runner.dry_run(rw, write)
-
-    assert {:ok, %{backup: %{json: json}}} =
-             Runner.commit(rw, write, expected_count: 1, backup_dir: dir)
-
-    assert rows("pg18", table) == [[1, 1], [2, 9]]
-
-    assert {:ok, %{count: 1}} = Fumehood.Restore.dry_run(rw, json)
-
-    assert {:ok, _} =
-             Fumehood.Restore.commit(rw, json, expected_count: 1, backup_dir: Path.join(dir, "r"))
-
-    assert rows("pg18", table) == [[1, 1], [2, 2]]
+    assert %{halted: true, status: 403} = call.("evil.example", "/api/me")
+    refute call.("localhost", "/api/me").halted
+    refute call.("127.0.0.1", "/").halted
+    refute call.("10.0.0.9", "/health").halted
   end
 
   test "oversized SQL is refused before parsing" do

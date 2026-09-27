@@ -54,6 +54,10 @@ if env == :prod and access[:mode] == :dev,
 # Tests set their own identity in config/test.exs.
 if env != :test, do: config(:fumehood, :access, access)
 
+# Localhost modes answer only to local host names (FumehoodWeb.Plugs.AllowedHosts).
+if env != :test and access[:mode] in [:ssh_tunnel, :dev],
+  do: config(:fumehood, :allowed_hosts, ["localhost", "127.0.0.1", "::1", "[::1]"])
+
 if config_env() == :prod do
   config :fumehood, config_path: System.get_env("FUMEHOOD_CONFIG", "/etc/fumehood/fumehood.toml")
 
