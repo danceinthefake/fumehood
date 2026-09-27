@@ -12,6 +12,7 @@ Runtimes are pinned in `mise.toml` (Erlang 29.1.1, Elixir 1.20.4).
 
 ```sh
 mise install          # Erlang + Elixir
+docker compose up -d  # target Postgres 16 + 18 for integration tests
 mise exec -- mix setup
 mise exec -- mix test
 mise exec -- mix phx.server   # http://localhost:4000

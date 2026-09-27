@@ -13,12 +13,14 @@ defmodule Fumehood.Safety do
     @moduledoc "A statement that passed the rules."
 
     @enforce_keys [:kind, :command]
-    defstruct [:kind, :command, :table, :ast]
+    defstruct [:kind, :command, :table, :sql, :ast]
 
     @type t :: %__MODULE__{
             kind: :read | :write,
             command: :select | :explain | :show | :insert | :update | :delete,
             table: {schema :: String.t() | nil, name :: String.t()} | nil,
+            # the statement exactly as written, without a trailing `;`
+            sql: String.t(),
             ast: term()
           }
   end
@@ -28,6 +30,7 @@ defmodule Fumehood.Safety do
           | :empty
           | :multiple_statements
           | :missing_where
+          | :returning
           | :writing_cte
           | :denied_function
           | :select_into
@@ -62,9 +65,10 @@ defmodule Fumehood.Safety do
   """
   @spec check(String.t()) :: {:ok, Statement.t()} | {:error, blocked()}
   def check(sql) when is_binary(sql) do
-    with {:ok, node} <- parse_single(sql),
-         :ok <- no_denied_functions(node) do
-      classify(node)
+    with {:ok, node, text} <- parse_single(sql),
+         :ok <- no_denied_functions(node),
+         {:ok, statement} <- classify(node) do
+      {:ok, %{statement | sql: text}}
     end
   end
 
@@ -72,8 +76,8 @@ defmodule Fumehood.Safety do
 
   defp parse_single(sql) do
     case PgQuery.parse(sql) do
-      {:ok, %{stmts: [%{stmt: %{node: node}}]}} ->
-        {:ok, node}
+      {:ok, %{stmts: [%{stmt: %{node: node}} = raw]}} ->
+        {:ok, node, statement_text(sql, raw)}
 
       {:ok, %{stmts: []}} ->
         blocked(:empty, "Nothing to run.")
@@ -85,6 +89,13 @@ defmodule Fumehood.Safety do
         blocked(:parse_error, "Postgres can't parse this: #{message}")
     end
   end
+
+  # Byte offsets from the parser; a length of 0 means "to the end".
+  defp statement_text(sql, %{stmt_location: from, stmt_len: 0}),
+    do: sql |> binary_part(from, byte_size(sql) - from) |> String.trim()
+
+  defp statement_text(sql, %{stmt_location: from, stmt_len: len}),
+    do: sql |> binary_part(from, len) |> String.trim()
 
   # -- classification --------------------------------------------------------
 
@@ -129,7 +140,11 @@ defmodule Fumehood.Safety do
   defp classify({:variable_show_stmt, _} = node), do: read(:show, node)
 
   defp classify({:insert_stmt, s} = node) do
-    if writes_inside?(s), do: writing_cte(), else: write(:insert, s.relation, node)
+    cond do
+      s.returning_list != [] -> returning()
+      writes_inside?(s) -> writing_cte()
+      true -> write(:insert, s.relation, node)
+    end
   end
 
   defp classify({type, s} = node) when type in [:update_stmt, :delete_stmt] do
@@ -138,6 +153,9 @@ defmodule Fumehood.Safety do
     cond do
       s.where_clause == nil ->
         blocked(:missing_where, "#{String.upcase("#{command}")} without WHERE is not allowed.")
+
+      s.returning_list != [] ->
+        returning()
 
       writes_inside?(s) ->
         writing_cte()
@@ -209,6 +227,13 @@ defmodule Fumehood.Safety do
 
   defp analyze?(%{options: options}) do
     Enum.any?(options, fn %{node: {:def_elem, %{defname: name}}} -> name == "analyze" end)
+  end
+
+  defp returning do
+    blocked(
+      :returning,
+      "Leave out RETURNING: fumehood adds its own to preview and back up the rows."
+    )
   end
 
   defp writing_cte do

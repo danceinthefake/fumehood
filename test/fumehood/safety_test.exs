@@ -50,6 +50,13 @@ defmodule Fumehood.SafetyTest do
                ok(~s(DELETE FROM "Users" WHERE id = 1))
     end
 
+    test "exact statement text, trimmed, without the trailing semicolon; comments kept" do
+      assert %{sql: "DELETE FROM t WHERE id = 1"} = ok("  DELETE FROM t WHERE id = 1;  ")
+
+      assert %{sql: "/* leading */ SELECT 1 -- trailing note"} =
+               ok("/* leading */ SELECT 1 -- trailing note")
+    end
+
     test "INSERT … SELECT and ON CONFLICT" do
       assert %{kind: :write, command: :insert} =
                ok("INSERT INTO archive SELECT * FROM users WHERE id < 10 ON CONFLICT DO NOTHING")
@@ -102,6 +109,11 @@ defmodule Fumehood.SafetyTest do
 
       assert rule("SELECT 1 FROM t WHERE x IN (SELECT pg_notify('ch', 'x'))") ==
                :denied_function
+    end
+
+    test "user-written RETURNING on writes" do
+      assert rule("DELETE FROM t WHERE id = 1 RETURNING *") == :returning
+      assert rule("INSERT INTO t VALUES (1) RETURNING id") == :returning
     end
 
     test "SELECT … INTO and row locking" do

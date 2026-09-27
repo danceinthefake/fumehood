@@ -102,6 +102,7 @@ is blocked).
 | `EXPLAIN ANALYZE` of an allowed read | allowed, read path |
 | `INSERT`, `UPDATE`, `DELETE` | allowed, write path (dry run → confirm) |
 | `UPDATE` / `DELETE` without `WHERE` | **blocked** |
+| user-written `RETURNING` on a write | **blocked** — fumehood adds its own to preview and back up rows |
 | more than one statement in one submission | **blocked** (one statement at a time) |
 | data-changing `WITH` clauses (`WITH … AS (INSERT/UPDATE/DELETE …)`) | **blocked** |
 | `SELECT … INTO`, `SELECT … FOR UPDATE / FOR SHARE` | **blocked** |
@@ -115,13 +116,21 @@ is blocked).
 
 ### 5.3 Always a transaction
 
+Implemented in `Fumehood.Runner`. `pg_query_ex` only parses (no deparse),
+so fumehood never regenerates SQL from the tree: it takes the statement's
+exact text (the parser's offsets, minus a trailing `;`) and only **wraps or
+appends** to it, always on new lines so a trailing `-- comment` can't
+swallow what is added (`SELECT * FROM (\n<stmt>\n) … LIMIT n`,
+`<stmt>\nRETURNING …`).
+
 - **Read path:** `BEGIN READ ONLY` + `SET LOCAL statement_timeout` +
   `SET LOCAL lock_timeout`; results capped (auto `LIMIT 1000` when the
   query has none, with "load more"). Postgres itself refuses any
   write inside a read-only transaction — a second wall behind the parser.
-- **Write path (dry run):** `BEGIN` → timeouts → run the statement with
-  `RETURNING *` added when possible → count + preview the affected rows →
-  **`ROLLBACK`**. Nothing is kept.
+- **Write path (dry run):** `BEGIN` → timeouts → primary-key check
+  (`UPDATE` / `DELETE`) → run the statement with `RETURNING *` appended →
+  count + preview the affected rows → row limit check → **`ROLLBACK`**.
+  Nothing is kept.
 - **Commit:** after the person who wrote it confirms (§6.4), the same
   statement runs again in a fresh transaction; if the affected row count differs from the
   dry run beyond a threshold, fumehood rolls back and asks again — the data

@@ -1,0 +1,17 @@
+# Target databases for fumehood's integration tests (Postgres 16 and 18).
+# docker compose up -d
+services:
+  pg16:
+    image: postgres:16-alpine
+    container_name: fumehood-pg16
+    environment:
+      POSTGRES_PASSWORD: fumehood
+      POSTGRES_DB: fumehood_target
+    ports: ["55416:5432"]
+  pg18:
+    image: postgres:18-alpine
+    container_name: fumehood-pg18
+    environment:
+      POSTGRES_PASSWORD: fumehood
+      POSTGRES_DB: fumehood_target
+    ports: ["55418:5432"]
