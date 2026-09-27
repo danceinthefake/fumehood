@@ -4,7 +4,7 @@ defmodule Fumehood.Queries do
 
   Each HTTP request already runs in its own process; while it runs a query it
   registers here under an id the browser chose, with its owner and — once the
-  transaction has started — its Postgres backend pid. `cancel/2` then asks
+  transaction has started — its Postgres backend pid and transaction start. `cancel/2` then asks
   Postgres to stop that backend's statement (`pg_cancel_backend`) from another
   pooled connection: the statement fails, the transaction rolls back, and the
   query's result becomes `{:error, {:cancelled, _}}`.
@@ -86,8 +86,14 @@ defmodule Fumehood.Queries do
   defp cancel_backend(query_id) do
     case :ets.lookup(@table, query_id) do
       [{_, _, db_id, backend, true}] ->
-        if backend do
-          Postgrex.query(Fumehood.Databases.conn(db_id), "SELECT pg_cancel_backend($1)", [backend])
+        # Only while that backend is still in *this* query's transaction: once
+        # the query ends, its pooled connection may already run someone else's.
+        with {pid, started} <- backend do
+          Postgrex.query(
+            Fumehood.Databases.conn(db_id),
+            "SELECT pg_cancel_backend(pid) FROM pg_stat_activity WHERE pid = $1 AND xact_start = $2",
+            [pid, started]
+          )
         end
 
         :running

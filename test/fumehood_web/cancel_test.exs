@@ -15,7 +15,7 @@ defmodule FumehoodWeb.CancelTest do
   # Waits until the query has started its transaction (backend pid known).
   defp wait_running(query_id, tries \\ 200) do
     case :ets.lookup(Queries, query_id) do
-      [{^query_id, _, _, backend, _}] when is_integer(backend) -> :ok
+      [{^query_id, _, _, {backend, _started}, _}] when is_integer(backend) -> :ok
       _ when tries > 0 -> Process.sleep(10) && wait_running(query_id, tries - 1)
       _ -> flunk("query #{query_id} never started")
     end

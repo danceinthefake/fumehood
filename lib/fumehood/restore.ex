@@ -12,6 +12,10 @@ defmodule Fumehood.Restore do
 
   The backup is loaded into a temporary table (`fumehood_restore`) inside the
   same transaction; it disappears when the transaction ends.
+
+  First, the rows must still be exactly as the commit left them (the
+  backup's `after_hash`): an undo never overwrites a later change, and a
+  backup can't be restored twice.
   """
 
   alias Fumehood.{Runner, Safety}
@@ -23,8 +27,7 @@ defmodule Fumehood.Restore do
           {:ok, map()} | {:error, Runner.error()}
   def dry_run(conn, json_path, opts \\ []) do
     with {:ok, plan} <- plan(conn, json_path),
-         {:ok, result} <- Runner.dry_run(conn, plan.statement, [prepare: plan.prepare] ++ opts),
-         :ok <- all_rows_found(result.count, plan) do
+         {:ok, result} <- Runner.dry_run(conn, plan.statement, [prepare: plan.prepare] ++ opts) do
       {:ok, Map.put(result, :sql, plan.statement.sql)}
     end
   end
@@ -47,12 +50,48 @@ defmodule Fumehood.Restore do
 
   defp plan(conn, json_path) do
     with {:ok, meta} <- read_meta(json_path),
+         :ok <- undoable(meta),
          {:ok, columns} <- columns(conn, meta["table"]) do
-      {sql, prepare} = build(meta, columns, csv_path(json_path))
+      {sql, load} = build(meta, columns, csv_path(json_path))
       {:ok, statement} = Safety.check(sql)
+      prepare = fn tx -> with :ok <- unchanged(tx, meta), do: load.(tx) end
       {:ok, %{statement: statement, prepare: prepare, meta: meta}}
     end
   end
+
+  defp undoable(%{"after_hash" => hash, "primary_key" => [_ | _]}) when is_binary(hash), do: :ok
+
+  defp undoable(%{"primary_key" => []}),
+    do:
+      blocked(
+        :no_primary_key,
+        "The table has no primary key, so the inserted rows can't be found again."
+      )
+
+  defp undoable(_meta),
+    do:
+      blocked(
+        :restore_unavailable,
+        "This backup doesn't record how the rows were left, so fumehood can't check them; restore it by hand from its CSV."
+      )
+
+  # The backed-up rows (locked) are still exactly as the commit left them.
+  defp unchanged(tx, meta) do
+    table = Runner.key_columns(tx, meta["table"], meta["primary_key"])
+
+    with true <- table != nil || {:error, {:db_error, "Table #{meta["table"]} doesn't exist."}},
+         {:ok, hash} <- Runner.rows_hash(tx, table, meta["keys"]) do
+      if hash == meta["after_hash"],
+        do: :ok,
+        else:
+          blocked(
+            :changed_since_commit,
+            "These rows changed after the commit (edited since, or already restored). Nothing was restored."
+          )
+    end
+  end
+
+  defp blocked(rule, message), do: {:error, {:blocked, rule, message}}
 
   defp build(%{"operation" => "delete", "table" => table}, _columns, csv) do
     {"INSERT INTO #{table} OVERRIDING SYSTEM VALUE SELECT * FROM #{@temp}", load_rows(table, csv)}
@@ -129,16 +168,6 @@ defmodule Fumehood.Restore do
   end
 
   # -- helpers ---------------------------------------------------------------
-
-  # The undo must touch every backed-up row; fewer means some were deleted
-  # or had their key changed since the backup.
-  defp all_rows_found(count, %{meta: %{"keys" => keys}}) when count == length(keys), do: :ok
-
-  defp all_rows_found(count, %{meta: %{"keys" => keys}}) do
-    {:error,
-     {:blocked, :restore_incomplete,
-      "The backup has #{length(keys)} rows but only #{count} can be restored — some changed since the backup."}}
-  end
 
   # Columns that can be written: no dropped or generated columns.
   defp columns(conn, table) do

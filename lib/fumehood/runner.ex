@@ -13,9 +13,11 @@ defmodule Fumehood.Runner do
     * `:max_rows` — rows returned by a read / changed by a write, default 1000
     * `:max_result_bytes` — a read stops early past this size, default 10 MB
     * `:preview` — rows shown from a write dry run, default 20
-    * `:on_backend` — `fn backend_pid -> any end`, called once the
-      transaction has started, with its Postgres backend pid (used by
-      `Fumehood.Queries` to cancel a running statement)
+    * `:on_backend` — `fn {backend_pid, xact_start} -> any end`, called once
+      the transaction has started: its Postgres backend and when this
+      transaction began, which together name this transaction and no later
+      one on the same pooled connection (used by `Fumehood.Queries` to
+      cancel a running statement)
     * `:prepare` — `fn tx -> :ok | {:error, reason} end`, run first inside
       the transaction (used by `Fumehood.Restore` to load a backup into a
       temporary table)
@@ -227,7 +229,8 @@ defmodule Fumehood.Runner do
          :ok <- within_limit(length(keys), opts[:max_rows]),
          :ok <- same_count(length(keys), opts[:expected_count]),
          keys = if(table.pk == [], do: [], else: keys),
-         {:ok, files} <- write_backup(statement, table, keys, nil, opts) do
+         {:ok, files} <- write_backup(statement, table, keys, nil, opts),
+         :ok <- put_after_hash(tx, table, keys, files) do
       {:ok, %{count: opts[:expected_count], backup: files}}
     end
   end
@@ -240,7 +243,8 @@ defmodule Fumehood.Runner do
          {:ok, csv} <- lock_and_export(tx, table, keys),
          {:ok, files} <- write_backup(statement, table, keys, csv, opts),
          {:ok, changed} <- run_returning_keys(tx, statement, table, opts[:max_rows]),
-         :ok <- same_keys(keys, changed) do
+         :ok <- same_keys(keys, changed),
+         :ok <- put_after_hash(tx, table, keys, files) do
       {:ok, %{count: length(changed), backup: files}}
     end
   end
@@ -339,6 +343,62 @@ defmodule Fumehood.Runner do
     end
   end
 
+  # The rows as this transaction left them, recorded before COMMIT: if the
+  # commit fails, a restore of this backup finds different rows and refuses.
+  defp put_after_hash(_tx, %{pk: []}, _keys, _files), do: :ok
+
+  defp put_after_hash(tx, table, keys, files) do
+    with {:ok, hash} <- rows_hash(tx, table, keys) do
+      case Backup.put(files.json, after_hash: hash) do
+        :ok -> :ok
+        {:error, message} -> blocked(:backup_failed, message)
+      end
+    end
+  end
+
+  @doc """
+  A hash of the current rows with `keys` in `table` (`%{relation, pk}` as
+  from `table_info/2`, or `key_columns/2`), locked until the transaction
+  ends. The same rows with the same values give the same hash.
+  """
+  @spec rows_hash(DBConnection.conn(), map(), [[String.t()]]) ::
+          {:ok, String.t()} | {:error, error()}
+  def rows_hash(tx, %{pk: pk, relation: relation}, keys) do
+    columns = Enum.map_join(pk, ", ", fn {column, _} -> "t.#{quote_ident(column)}" end)
+    params = keys |> Enum.zip() |> Enum.map(&Tuple.to_list/1) |> pad(length(pk))
+
+    typed =
+      pk
+      |> Enum.with_index(1)
+      |> Enum.map_join(", ", fn {{_, type}, i} -> "$#{i}::text[]::#{type}[]" end)
+
+    sql = """
+    SELECT md5(coalesce(string_agg(s.r::text, E'\\n' ORDER BY s.r::text), ''))
+    FROM (SELECT t AS r FROM #{relation} t
+          WHERE (#{columns}) IN (SELECT * FROM unnest(#{typed})) FOR UPDATE OF t) s
+    """
+
+    with {:ok, %{rows: [[hash]]}} <- query(tx, sql, params), do: {:ok, hash}
+  end
+
+  @doc """
+  `%{relation, pk}` for a table named as Postgres prints it (a backup's
+  `table`), with the key columns in `names` order; nil when it's gone.
+  """
+  @spec key_columns(DBConnection.conn(), String.t(), [String.t()]) :: map() | nil
+  def key_columns(conn, relation, names) do
+    sql = """
+    SELECT a.attname, format_type(a.atttypid, a.atttypmod)
+    FROM pg_attribute a
+    WHERE a.attrelid = to_regclass($1) AND a.attname = ANY ($2) AND NOT a.attisdropped
+    """
+
+    types = Map.new(Postgrex.query!(conn, sql, [relation, names]).rows, &List.to_tuple/1)
+
+    if map_size(types) == length(names),
+      do: %{relation: relation, pk: Enum.map(names, &{&1, types[&1]})}
+  end
+
   # Enum.zip([]) is [] — keep one (empty) array per key column.
   defp pad([], columns), do: List.duplicate([], columns)
   defp pad(params, _columns), do: params
@@ -403,8 +463,8 @@ defmodule Fumehood.Runner do
       if mode == :read_only, do: Postgrex.query!(tx, "SET TRANSACTION READ ONLY", [])
 
       if on_backend = opts[:on_backend] do
-        [[backend]] = Postgrex.query!(tx, "SELECT pg_backend_pid()", []).rows
-        on_backend.(backend)
+        [[backend, started]] = Postgrex.query!(tx, "SELECT pg_backend_pid(), now()", []).rows
+        on_backend.({backend, started})
       end
 
       Postgrex.query!(tx, "SET LOCAL statement_timeout = #{opts[:statement_timeout]}", [])

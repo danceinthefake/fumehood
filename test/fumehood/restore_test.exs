@@ -101,7 +101,38 @@ defmodule Fumehood.RestoreTest do
     json = write!(conn, "UPDATE users SET name = 'x' WHERE id <= 3", dir)
     Postgrex.query!(conn, "DELETE FROM users WHERE id = 2", [])
 
-    assert {:error, {:blocked, :restore_incomplete, _}} = Restore.dry_run(conn, json)
+    assert {:error, {:blocked, :changed_since_commit, _}} = Restore.dry_run(conn, json)
+  end
+
+  test "rows edited since the commit: the undo never overwrites them", %{conn: conn, tmp_dir: dir} do
+    json = write!(conn, "UPDATE users SET name = 'x' WHERE id <= 3", dir)
+    Postgrex.query!(conn, "UPDATE users SET email = 'later@x.com' WHERE id = 3", [])
+
+    assert {:error, {:blocked, :changed_since_commit, _}} = Restore.dry_run(conn, json)
+
+    assert {:error, {:blocked, :changed_since_commit, _}} =
+             Restore.commit(conn, json, expected_count: 3, backup_dir: dir)
+
+    assert rows(conn, "SELECT email FROM users WHERE id = 3") == [["later@x.com"]]
+  end
+
+  test "a backup can't be restored twice", %{conn: conn, tmp_dir: dir} do
+    json = write!(conn, "UPDATE users SET name = 'x' WHERE id = 1", dir)
+    assert {:ok, _} = restore!(conn, json, dir)
+    assert {:error, {:blocked, :changed_since_commit, _}} = Restore.dry_run(conn, json)
+  end
+
+  test "an insert undo finds new rows touched later, too", %{conn: conn, tmp_dir: dir} do
+    json = write!(conn, "INSERT INTO users VALUES (11, 'new', 'n@x.com', NULL)", dir)
+    Postgrex.query!(conn, "UPDATE users SET name = 'edited' WHERE id = 11", [])
+    assert {:error, {:blocked, :changed_since_commit, _}} = Restore.dry_run(conn, json)
+  end
+
+  test "a backup without after_hash (older fumehood) is refused", %{conn: conn, tmp_dir: dir} do
+    json = write!(conn, "UPDATE users SET name = 'x' WHERE id = 1", dir)
+    meta = json |> File.read!() |> JSON.decode!() |> Map.delete("after_hash")
+    File.write!(json, JSON.encode!(meta))
+    assert {:error, {:blocked, :restore_unavailable, _}} = Restore.dry_run(conn, json)
   end
 
   test "table changed shape since the backup: clear error, nothing changed", %{

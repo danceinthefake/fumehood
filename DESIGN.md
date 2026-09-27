@@ -215,13 +215,21 @@ so a restore can itself be undone):
 `fumehood_restore` is a temporary table created and filled inside the same
 transaction (`COPY … FROM STDIN` from the CSV, or the recorded keys cast to
 the key column types) and dropped when it ends. The restore dry run shows
-the generated SQL and is **blocked** if it can't reach every backed-up row
-(rows deleted, or their key changed, since the backup).
+the generated SQL.
+
+**A restore never overwrites a later change.** Before the commit, while
+the rows are still locked, fumehood hashes the changed rows as the write
+left them and adds it to the backup's JSON (`after_hash`). A restore first
+locks and hashes the same rows again; if anything differs — edited since,
+deleted, re-inserted, or already restored — it is **blocked**
+(`changed_since_commit`). Backups without `after_hash` can't be checked and
+are refused; restore those by hand from the CSV.
 
 Known limits (v1): a backup no longer fits after the table's columns
 changed (clear error, nothing applied); tables with generated columns can't
 be restored from a `DELETE` backup; an `UPDATE` that changed primary key
-values can't be undone by key (the dry run reports it as incomplete).
+values can't be undone by key (the restore is blocked: the keys no longer
+match).
 
 **Rules this adds:**
 
@@ -238,11 +246,14 @@ values can't be undone by key (the dry run reports it as incomplete).
 Implemented (`Fumehood.Queries`, milestone 3). Each HTTP request already runs
 in its own Elixir process; while it runs a query it registers under an id
 the browser chose (a UUID), with its owner and its **Postgres backend pid**
-(reported by `Fumehood.Runner`'s `:on_backend` hook once the transaction
+and transaction start (reported by `Fumehood.Runner`'s `:on_backend` hook once the transaction
 starts). This is where Elixir earns its place:
 
 - **cancel:** `POST /api/queries/:query_id/cancel` (owner only) runs
-  `pg_cancel_backend(pid)` from another pooled connection — Postgres stops
+  `pg_cancel_backend(pid)` from another pooled connection, only while that
+  backend is still in the query's own transaction (`pg_stat_activity.xact_start`
+  matches) — so a late retry can't hit the next query on the same pooled
+  connection. Postgres stops
   the statement, the transaction rolls back, the request answers `409
   cancelled`, and the audit records outcome `cancelled`. Killing only the
   Elixir process wouldn't stop the statement inside Postgres.

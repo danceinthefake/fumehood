@@ -4,7 +4,9 @@ defmodule Fumehood.Backup do
 
     * `<id>.csv` — the rows exactly as they were, written by Postgres `COPY`
       (only for `UPDATE` / `DELETE`);
-    * `<id>.json` — what was changed and how to find the rows again.
+    * `<id>.json` — what was changed and how to find the rows again, plus
+      `after_hash`: the changed rows as the commit left them, so a restore
+      can tell whether anyone changed them since.
 
   Files are written with `:sync` so they are on disk before the change
   commits.
@@ -44,6 +46,24 @@ defmodule Fumehood.Backup do
       {:ok, %{csv: csv_path, json: json_path}}
     else
       {:error, reason} -> {:error, "Backup couldn't be written to #{dir}: #{inspect(reason)}"}
+    end
+  end
+
+  @doc """
+  Adds `fields` to a backup's JSON, replacing the file atomically (write,
+  sync, rename). Used for what is only known after the change ran.
+  """
+  @spec put(Path.t(), map()) :: :ok | {:error, String.t()}
+  def put(json_path, fields) do
+    tmp = json_path <> ".tmp"
+
+    with {:ok, text} <- File.read(json_path),
+         meta = Map.merge(JSON.decode!(text), Map.new(fields, fn {k, v} -> {to_string(k), v} end)),
+         :ok <- write_synced(tmp, JSON.encode!(meta)),
+         :ok <- File.rename(tmp, json_path) do
+      :ok
+    else
+      {:error, reason} -> {:error, "Backup #{json_path} couldn't be updated: #{inspect(reason)}"}
     end
   end
 
