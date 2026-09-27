@@ -102,6 +102,7 @@ is blocked).
 | `EXPLAIN ANALYZE` of an allowed read | allowed, read path |
 | `INSERT`, `UPDATE`, `DELETE` | allowed, write path (dry run → confirm) |
 | `UPDATE` / `DELETE` without `WHERE` | **blocked** |
+| `INSERT … ON CONFLICT DO UPDATE` | **blocked** — the rows it overwrites can't be backed up (`DO NOTHING` is allowed) |
 | user-written `RETURNING` on a write | **blocked** — fumehood adds its own to preview and back up rows |
 | more than one statement in one submission | **blocked** (one statement at a time) |
 | SQL longer than 100 KB | **blocked** before parsing |

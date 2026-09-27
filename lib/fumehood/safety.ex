@@ -34,6 +34,7 @@ defmodule Fumehood.Safety do
           | :multiple_statements
           | :missing_where
           | :returning
+          | :upsert
           | :writing_cte
           | :denied_function
           | :select_into
@@ -152,6 +153,7 @@ defmodule Fumehood.Safety do
   defp classify({:insert_stmt, s} = node) do
     cond do
       s.returning_list != [] -> returning()
+      upsert?(s) -> upsert()
       writes_inside?(s) -> writing_cte()
       true -> write(:insert, s.relation, node)
     end
@@ -237,6 +239,19 @@ defmodule Fumehood.Safety do
 
   defp analyze?(%{options: options}) do
     Enum.any?(options, fn %{node: {:def_elem, %{defname: name}}} -> name == "analyze" end)
+  end
+
+  # ON CONFLICT DO UPDATE changes existing rows that fumehood can't back up
+  # beforehand (it only knows the new rows' keys); DO NOTHING is fine.
+  defp upsert?(%{on_conflict_clause: %{action: :ONCONFLICT_UPDATE}}), do: true
+  defp upsert?(_insert), do: false
+
+  defp upsert do
+    blocked(
+      :upsert,
+      "INSERT … ON CONFLICT DO UPDATE is not allowed: the rows it overwrites can't be backed up. " <>
+        "Use ON CONFLICT DO NOTHING, then UPDATE the existing rows."
+    )
   end
 
   defp returning do

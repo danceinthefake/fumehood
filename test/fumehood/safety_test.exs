@@ -111,6 +111,14 @@ defmodule Fumehood.SafetyTest do
                :denied_function
     end
 
+    test "INSERT … ON CONFLICT DO UPDATE (overwrites rows without a backup)" do
+      assert rule("INSERT INTO t VALUES (1, 0) ON CONFLICT (id) DO UPDATE SET n = excluded.n") ==
+               :upsert
+
+      assert rule("insert into t values (1) on conflict on constraint t_pkey do update set n = 1") ==
+               :upsert
+    end
+
     test "user-written RETURNING on writes" do
       assert rule("DELETE FROM t WHERE id = 1 RETURNING *") == :returning
       assert rule("INSERT INTO t VALUES (1) RETURNING id") == :returning
