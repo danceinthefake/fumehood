@@ -89,6 +89,9 @@ defmodule Fumehood.Runner do
   `rows_token` identifies exactly which rows an `UPDATE` / `DELETE` touched
   (nil for `INSERT`, whose new keys aren't known until commit); pass it to
   `commit/3` as `:expected_token`.
+
+  `warnings` names what can change *other* tables along with this one —
+  triggers, cascading foreign keys — which the backup doesn't cover.
   """
   @spec dry_run(DBConnection.conn(), Statement.t(), keyword()) ::
           {:ok,
@@ -96,7 +99,8 @@ defmodule Fumehood.Runner do
              count: non_neg_integer(),
              columns: [String.t()],
              preview: [list()],
-             rows_token: String.t() | nil
+             rows_token: String.t() | nil,
+             warnings: [String.t()]
            }}
           | {:error, error()}
   def dry_run(conn, %Statement{kind: :write} = statement, opts \\ []) do
@@ -118,7 +122,8 @@ defmodule Fumehood.Runner do
         sql =
           statement.sql <> "\nRETURNING " <> returning(statement, table, "#{target(statement)}.*")
 
-        with {:ok, {keys, rows, n}, query} <- reduce_rows(tx, sql, [], {[], [], 0}, collect),
+        with {:ok, warnings} <- side_effects(tx, statement.command, table.relation),
+             {:ok, {keys, rows, n}, query} <- reduce_rows(tx, sql, [], {[], [], 0}, collect),
              :ok <- within_limit(n, max) do
           {:ok,
            %{
@@ -126,7 +131,8 @@ defmodule Fumehood.Runner do
              columns: Enum.drop(query.columns, k),
              types: Enum.drop(types(query), k),
              preview: Enum.reverse(rows),
-             rows_token: if(statement.command == :insert, do: nil, else: rows_token(keys))
+             rows_token: if(statement.command == :insert, do: nil, else: rows_token(keys)),
+             warnings: warnings
            }}
         end
       end
@@ -397,6 +403,29 @@ defmodule Fumehood.Runner do
 
     if map_size(types) == length(names),
       do: %{relation: relation, pk: Enum.map(names, &{&1, types[&1]})}
+  end
+
+  # What else changes when this table does, outside the backup: enabled user
+  # triggers, and foreign keys from other tables that cascade (or set NULL /
+  # default) on this command.
+  defp side_effects(tx, command, relation) do
+    sql = """
+    SELECT format('Trigger %I runs on this table; what it changes elsewhere isn''t backed up.', t.tgname)
+    FROM pg_trigger t
+    WHERE t.tgrelid = to_regclass($1) AND NOT t.tgisinternal AND t.tgenabled <> 'D'
+    UNION ALL
+    SELECT format('Rows in %s that reference these rows are %s (foreign key %I); they aren''t backed up.',
+                  c.conrelid::regclass,
+                  CASE a.action WHEN 'c' THEN $2 || 'd too' WHEN 'n' THEN 'set to NULL' ELSE 'set to their default' END,
+                  c.conname)
+    FROM pg_constraint c
+    CROSS JOIN LATERAL (SELECT CASE $2 WHEN 'delete' THEN c.confdeltype ELSE c.confupdtype END AS action) a
+    WHERE c.contype = 'f' AND c.confrelid = to_regclass($1) AND $2 <> 'insert' AND a.action IN ('c', 'n', 'd')
+    """
+
+    with {:ok, %{rows: rows}} <- query(tx, sql, [relation, Atom.to_string(command)]) do
+      {:ok, List.flatten(rows)}
+    end
   end
 
   # Enum.zip([]) is [] — keep one (empty) array per key column.

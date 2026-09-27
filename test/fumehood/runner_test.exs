@@ -113,6 +113,32 @@ defmodule Fumehood.RunnerTest do
       assert count(conn, "logs") == [[2]]
     end
 
+    test "warns about triggers and cascading foreign keys", %{conn: conn} do
+      for sql <- [
+            "CREATE TABLE parent (id int PRIMARY KEY)",
+            "CREATE TABLE child (id int PRIMARY KEY, parent_id int REFERENCES parent ON DELETE CASCADE)",
+            "INSERT INTO parent VALUES (1)",
+            "CREATE FUNCTION noop() RETURNS trigger LANGUAGE plpgsql AS $$BEGIN RETURN NEW; END$$",
+            "CREATE TRIGGER stamp AFTER UPDATE ON parent FOR EACH ROW EXECUTE FUNCTION noop()"
+          ],
+          do: Postgrex.query!(conn, sql, [])
+
+      assert {:ok, %{warnings: warnings}} =
+               Runner.dry_run(conn, statement!("DELETE FROM parent WHERE id = 1"))
+
+      assert Enum.any?(warnings, &(&1 =~ "Trigger stamp"))
+      assert Enum.any?(warnings, &(&1 =~ "child" and &1 =~ "deleted too"))
+
+      # UPDATE: the foreign key doesn't cascade on update (NO ACTION)
+      assert {:ok, %{warnings: [trigger]}} =
+               Runner.dry_run(conn, statement!("UPDATE parent SET id = 2 WHERE id = 1"))
+
+      assert trigger =~ "stamp"
+
+      assert {:ok, %{warnings: []}} =
+               Runner.dry_run(conn, statement!("DELETE FROM users WHERE id = 1"))
+    end
+
     test "preview is limited", %{conn: conn} do
       assert {:ok, %{count: 30, preview: preview}} =
                Runner.dry_run(conn, statement!("DELETE FROM users WHERE id > 0"), preview: 3)

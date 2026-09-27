@@ -22,6 +22,8 @@ export type DryRun = {
   count: number;
   // which rows the dry run touched (UPDATE / DELETE); the commit must match
   rows_token: string | null;
+  // what else changes with this table and isn't backed up (triggers, cascades)
+  warnings: string[];
   columns: string[];
   preview: unknown[][];
 };
@@ -43,6 +45,7 @@ export type RestorePlan = {
   sql: string;
   count: number;
   rows_token: string | null;
+  warnings: string[];
   columns: string[];
   preview: unknown[][];
 };

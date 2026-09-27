@@ -281,6 +281,15 @@ const when = (iso: string) => new Date(iso).toLocaleString();
             <code>{{ dryRun.table }}</code
             >. Committing backs those rows up first.
           </BlessAlert>
+          <BlessAlert
+            v-if="dryRun.warnings.length"
+            color="danger"
+            title="Also changes other rows — not backed up"
+          >
+            <ul class="warnings">
+              <li v-for="w in dryRun.warnings" :key="w">{{ w }}</li>
+            </ul>
+          </BlessAlert>
           <div class="actions">
             <BlessButton
               color="danger"
@@ -316,6 +325,15 @@ const when = (iso: string) => new Date(iso).toLocaleString();
             Undoing backup <code>{{ restoring.id }}</code> changes
             <strong>{{ restorePlan.count }} {{ rows(restorePlan.count) }}</strong> with:
             <pre class="restore-sql">{{ restorePlan.sql }}</pre>
+          </BlessAlert>
+          <BlessAlert
+            v-if="restorePlan.warnings.length"
+            color="danger"
+            title="Also changes other rows — not backed up"
+          >
+            <ul class="warnings">
+              <li v-for="w in restorePlan.warnings" :key="w">{{ w }}</li>
+            </ul>
           </BlessAlert>
           <div class="actions">
             <BlessButton color="danger" @click="confirmRestore = true">
@@ -400,6 +418,10 @@ const when = (iso: string) => new Date(iso).toLocaleString();
 }
 .elapsed {
   font-variant-numeric: tabular-nums;
+}
+.warnings {
+  margin: 0;
+  padding-left: var(--bless-space-5);
 }
 .restore-sql {
   margin: var(--bless-space-2) 0 0;

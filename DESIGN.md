@@ -229,7 +229,12 @@ Known limits (v1): a backup no longer fits after the table's columns
 changed (clear error, nothing applied); tables with generated columns can't
 be restored from a `DELETE` backup; an `UPDATE` that changed primary key
 values can't be undone by key (the restore is blocked: the keys no longer
-match).
+match). Changes made to *other* tables — by triggers, or by foreign keys
+that cascade / set NULL / set default — aren't backed up and aren't undone;
+the dry run lists them as warnings (enabled user triggers on the table;
+foreign keys referencing it whose action fires for this command), and the
+UI shows them in red above the commit button. User-defined functions called
+by the statement can also write elsewhere; fumehood can't see into them.
 
 **Rules this adds:**
 

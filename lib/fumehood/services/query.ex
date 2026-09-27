@@ -155,6 +155,7 @@ defmodule Fumehood.Services.Query do
                sql: r.sql,
                count: r.count,
                rows_token: r.rows_token,
+               warnings: r.warnings,
                columns: r.columns,
                preview: Values.rows(r.preview, r.types)
              }}
@@ -366,6 +367,7 @@ defmodule Fumehood.Services.Query do
       table: format_table(statement.table),
       count: r.count,
       rows_token: r.rows_token,
+      warnings: r.warnings,
       columns: r.columns,
       preview: Values.rows(r.preview, r.types)
     }
