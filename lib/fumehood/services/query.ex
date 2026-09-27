@@ -5,10 +5,17 @@ defmodule Fumehood.Services.Query do
 
   Enforces the per-database mode (`read_only` databases take no writes,
   restores included) and stamps backups with who ran them.
+
+  Everything that reaches a database is audited (`Fumehood.Repos.AuditRepo`).
+  Commits and restores write a `started` entry *before* touching the
+  database and are refused if that entry can't be written.
   """
+
+  require Logger
 
   alias Fumehood.{Backup, Databases, Restore, Runner, Safety, Values}
   alias Fumehood.Config.Database
+  alias Fumehood.Repos.AuditRepo
 
   @type identity :: %{id: String.t(), source: atom()}
   @type error :: {:blocked, atom(), String.t()} | {:db_error, String.t()} | :not_found
@@ -20,28 +27,31 @@ defmodule Fumehood.Services.Query do
 
   @doc "Runs a read, or a write's dry run (nothing is kept)."
   @spec run(String.t(), String.t(), identity()) :: {:ok, map()} | {:error, error()}
-  def run(db_id, sql, _identity) do
-    with {:ok, db} <- fetch(db_id),
-         {:ok, statement} <- Safety.check(sql),
-         :ok <- allowed(db, statement) do
-      case statement.kind do
-        :read ->
-          with {:ok, r} <- Runner.read(Databases.conn(db.id), statement, limits(db)) do
-            {:ok,
-             %{
-               kind: :read,
-               command: statement.command,
-               columns: r.columns,
-               rows: Values.rows(r.rows, r.types),
-               truncated: r.truncated
-             }}
-          end
+  def run(db_id, sql, identity) do
+    with {:ok, db} <- fetch(db_id) do
+      audited(db, identity, %{sql: sql}, fn ->
+        with {:ok, statement} <- Safety.check(sql),
+             :ok <- allowed(db, statement) do
+          case statement.kind do
+            :read ->
+              with {:ok, r} <- Runner.read(Databases.conn(db.id), statement, limits(db)) do
+                {:ok,
+                 %{
+                   kind: :read,
+                   command: statement.command,
+                   columns: r.columns,
+                   rows: Values.rows(r.rows, r.types),
+                   truncated: r.truncated
+                 }}
+              end
 
-        :write ->
-          with {:ok, r} <- Runner.dry_run(Databases.conn(db.id), statement, limits(db)) do
-            {:ok, dry_run_view(statement, r)}
+            :write ->
+              with {:ok, r} <- Runner.dry_run(Databases.conn(db.id), statement, limits(db)) do
+                {:ok, dry_run_view(statement, r)}
+              end
           end
-      end
+        end
+      end)
     end
   end
 
@@ -49,24 +59,37 @@ defmodule Fumehood.Services.Query do
   @spec commit(String.t(), String.t(), non_neg_integer(), identity()) ::
           {:ok, map()} | {:error, error()}
   def commit(db_id, sql, expected_count, identity) do
-    with {:ok, db} <- fetch(db_id),
-         {:ok, statement} <- Safety.check(sql),
-         :ok <- is_write(statement),
-         :ok <- allowed(db, statement),
-         backup_id = Backup.new_id(),
-         {:ok, r} <-
-           Runner.commit(
-             Databases.conn(db.id),
-             statement,
-             limits(db) ++
-               [
-                 expected_count: expected_count,
-                 backup_dir: backup_dir(db),
-                 backup_id: backup_id,
-                 meta: %{user: identity.id, database: db.id}
-               ]
-           ) do
-      {:ok, %{count: r.count, backup_id: backup_id}}
+    with {:ok, db} <- fetch(db_id) do
+      backup_id = Backup.new_id()
+      entry = %{action: "commit", sql: sql, expected_count: expected_count, backup_id: backup_id}
+
+      audited_write(db, identity, entry, fn ->
+        with {:ok, statement} <- Safety.check(sql),
+             :ok <- is_write(statement),
+             :ok <- allowed(db, statement),
+             {:ok, r} <-
+               Runner.commit(
+                 Databases.conn(db.id),
+                 statement,
+                 limits(db) ++
+                   [
+                     expected_count: expected_count,
+                     backup_dir: backup_dir(db),
+                     backup_id: backup_id,
+                     meta: %{user: identity.id, database: db.id}
+                   ]
+               ) do
+          {:ok, %{count: r.count, backup_id: backup_id}}
+        end
+      end)
+    end
+  end
+
+  @doc "Audit log of a database, newest first; `before` (an entry id) pages back."
+  @spec audit(String.t(), pos_integer(), integer() | nil) :: {:ok, [map()]} | {:error, error()}
+  def audit(db_id, limit \\ 100, before \\ nil) do
+    with {:ok, db} <- fetch(db_id) do
+      {:ok, db.id |> AuditRepo.list(limit, before) |> Enum.map(&audit_view/1)}
     end
   end
 
@@ -107,16 +130,20 @@ defmodule Fumehood.Services.Query do
 
   @doc "Dry run of undoing a backup."
   @spec restore_dry_run(String.t(), String.t(), identity()) :: {:ok, map()} | {:error, error()}
-  def restore_dry_run(db_id, backup_id, _identity) do
-    with {:ok, db, path} <- backup(db_id, backup_id),
-         {:ok, r} <- Restore.dry_run(Databases.conn(db.id), path, limits(db)) do
-      {:ok,
-       %{
-         sql: r.sql,
-         count: r.count,
-         columns: r.columns,
-         preview: Values.rows(r.preview, r.types)
-       }}
+  def restore_dry_run(db_id, backup_id, identity) do
+    with {:ok, db} <- fetch(db_id) do
+      audited(db, identity, %{action: "restore_dry_run", restore_of: backup_id}, fn ->
+        with {:ok, path} <- backup(db, backup_id),
+             {:ok, r} <- Restore.dry_run(Databases.conn(db.id), path, limits(db)) do
+          {:ok,
+           %{
+             sql: r.sql,
+             count: r.count,
+             columns: r.columns,
+             preview: Values.rows(r.preview, r.types)
+           }}
+        end
+      end)
     end
   end
 
@@ -124,22 +151,138 @@ defmodule Fumehood.Services.Query do
   @spec restore_commit(String.t(), String.t(), non_neg_integer(), identity()) ::
           {:ok, map()} | {:error, error()}
   def restore_commit(db_id, backup_id, expected_count, identity) do
-    with {:ok, db, path} <- backup(db_id, backup_id),
-         new_id = Backup.new_id(),
-         {:ok, r} <-
-           Restore.commit(
-             Databases.conn(db.id),
-             path,
-             limits(db) ++
-               [
-                 expected_count: expected_count,
-                 backup_dir: backup_dir(db),
-                 backup_id: new_id,
-                 meta: %{user: identity.id, database: db.id}
-               ]
-           ) do
-      {:ok, %{count: r.count, backup_id: new_id}}
+    with {:ok, db} <- fetch(db_id) do
+      new_id = Backup.new_id()
+
+      entry = %{
+        action: "restore_commit",
+        restore_of: backup_id,
+        expected_count: expected_count,
+        backup_id: new_id
+      }
+
+      audited_write(db, identity, entry, fn ->
+        with {:ok, path} <- backup(db, backup_id),
+             {:ok, r} <-
+               Restore.commit(
+                 Databases.conn(db.id),
+                 path,
+                 limits(db) ++
+                   [
+                     expected_count: expected_count,
+                     backup_dir: backup_dir(db),
+                     backup_id: new_id,
+                     meta: %{user: identity.id, database: db.id}
+                   ]
+               ) do
+          {:ok, %{count: r.count, backup_id: new_id}}
+        end
+      end)
     end
+  end
+
+  # -- audit -----------------------------------------------------------------
+
+  # Runs `fun` and records one entry with its outcome. The action comes from
+  # `entry`, or from the result for plain runs (read / dry_run / run).
+  defp audited(db, identity, entry, fun) do
+    started = System.monotonic_time(:millisecond)
+    result = fun.()
+    duration = System.monotonic_time(:millisecond) - started
+
+    db
+    |> base_entry(identity, entry)
+    |> Map.merge(outcome(result))
+    |> Map.put_new_lazy(:action, fn -> run_action(result) end)
+    |> Map.put(:duration_ms, duration)
+    |> record()
+
+    result
+  end
+
+  # Writes: a `started` entry first — refused if it can't be written, so no
+  # change reaches the database unrecorded — then the outcome entry.
+  defp audited_write(db, identity, entry, fun) do
+    case db
+         |> base_entry(identity, entry)
+         |> Map.put(:outcome, "started")
+         |> insert_entry() do
+      {:ok, _} ->
+        audited(db, identity, entry, fun)
+
+      {:error, reason} ->
+        Logger.error("audit log unavailable, write refused: #{inspect(reason)}")
+
+        {:error,
+         {:blocked, :audit_unavailable, "The audit log can't be written, so nothing was changed."}}
+    end
+  end
+
+  defp base_entry(db, identity, entry) do
+    Map.merge(
+      %{
+        at: DateTime.utc_now(),
+        user: identity.id,
+        source: to_string(identity.source),
+        database: db.id
+      },
+      entry
+    )
+  end
+
+  defp outcome({:ok, %{kind: :read, rows: rows}}), do: %{outcome: "ok", rows: length(rows)}
+  defp outcome({:ok, %{count: count}}), do: %{outcome: "ok", rows: count}
+
+  defp outcome({:error, {:blocked, rule, message}}),
+    do: %{outcome: "blocked", rule: to_string(rule), message: message}
+
+  defp outcome({:error, {:db_error, message}}),
+    do: %{outcome: "error", rule: "db_error", message: message}
+
+  defp outcome({:error, :not_found}),
+    do: %{outcome: "error", rule: "not_found", message: "Not found."}
+
+  defp run_action({:ok, %{kind: :read}}), do: "read"
+  defp run_action({:ok, %{kind: :write}}), do: "dry_run"
+  defp run_action(_), do: "run"
+
+  # The operation already happened; a failed audit insert here is logged
+  # loudly (the `started` entry exists for writes).
+  defp record(entry) do
+    case insert_entry(entry) do
+      {:ok, _} ->
+        :ok
+
+      {:error, reason} ->
+        Logger.error("audit entry not written: #{inspect(reason)} #{inspect(entry)}")
+    end
+  end
+
+  # A broken audit store (locked, missing table, full disk) raises; treat it
+  # the same as a failed insert so writes are refused cleanly.
+  defp insert_entry(entry) do
+    AuditRepo.insert(entry)
+  rescue
+    e -> {:error, Exception.message(e)}
+  end
+
+  defp audit_view(e) do
+    Map.take(e, [
+      :id,
+      :at,
+      :user,
+      :source,
+      :action,
+      :sql,
+      :outcome,
+      :rule,
+      :message,
+      :rows,
+      :expected_count,
+      :duration_ms,
+      :backup_id,
+      :restore_of
+    ])
   end
 
   # -- helpers ---------------------------------------------------------------
@@ -153,13 +296,12 @@ defmodule Fumehood.Services.Query do
 
   # Restores write too, so they need a read_write database. Backup ids come
   # from the URL: only our own id format, so no path can escape the dir.
-  defp backup(db_id, backup_id) do
-    with {:ok, db} <- fetch(db_id),
-         :ok <- allowed(db, %{kind: :write}),
+  defp backup(db, backup_id) do
+    with :ok <- allowed(db, %{kind: :write}),
          true <- Regex.match?(~r/\A[0-9A-Za-z-]{1,64}\z/, backup_id) || {:error, :not_found},
          path = Path.join(backup_dir(db), backup_id <> ".json"),
          true <- File.exists?(path) || {:error, :not_found} do
-      {:ok, db, path}
+      {:ok, path}
     end
   end
 

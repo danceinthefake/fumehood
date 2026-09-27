@@ -375,15 +375,27 @@ only to stamp the audit log.
 
 ## 7. Audit
 
-Append-only record of every action: who, when, which database, the SQL text,
-path (read / dry run / commit), rows affected, duration, outcome (ok /
-blocked + rule / error / cancelled / timed out), and for commits the dry-run
-count the person confirmed and the backup id (§5.4).
+Implemented (`Fumehood.Models.AuditEntry`, `Fumehood.Repos.AuditRepo`,
+recorded by `Fumehood.Services.Query`): every operation that reaches a
+database — who (identity + source), when, which database, the SQL, action
+(`run` / `read` / `dry_run` / `commit` / `restore_dry_run` /
+`restore_commit`), outcome (`started` / `ok` / `blocked` / `error` /
+`cancelled`), rule and message, rows, confirmed dry-run count, duration,
+backup id and the backup a restore undoes.
 
-- Live feed in the UI over a Channel — anyone with access sees activity as it happens.
-- Export (CSV / JSON); retention configurable.
-- Result data itself is **not** stored by default (it may hold personal
-  data); only counts.
+- **Append-only in the database itself:** SQLite triggers abort any `UPDATE`
+  or `DELETE` on the table, whatever code tries it.
+- **Written before a change:** commits and restores insert a `started` entry
+  first and are **refused** (`audit_unavailable`) if it can't be written — no
+  change reaches production unrecorded. The outcome is a second entry (the
+  log is never updated).
+- `GET /api/databases/:id/audit?before=<id>` — newest first, 100 per page.
+- Live feed in the UI over a Channel — anyone with access sees activity as
+  it happens (3c).
+- Result data itself is **not** stored (it may hold personal data); only
+  counts.
+- Later: export (CSV / JSON), retention (needs a deliberate path around the
+  append-only triggers).
 
 ## 8. Architecture
 

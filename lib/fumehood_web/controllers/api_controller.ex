@@ -37,6 +37,17 @@ defmodule FumehoodWeb.ApiController do
     with {:ok, backups} <- Query.backups(id), do: json(conn, %{backups: backups})
   end
 
+  # GET /api/databases/:id/audit?before=123
+  def audit(conn, %{"id" => id} = params) do
+    before =
+      case Integer.parse(params["before"] || "") do
+        {n, ""} -> n
+        _ -> nil
+      end
+
+    with {:ok, entries} <- Query.audit(id, 100, before), do: json(conn, %{entries: entries})
+  end
+
   # POST /api/databases/:id/backups/:backup_id/restore
   def restore(conn, %{"id" => id, "backup_id" => backup_id}) do
     with {:ok, result} <- Query.restore_dry_run(id, backup_id, conn.assigns.identity) do
