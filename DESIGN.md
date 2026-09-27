@@ -306,11 +306,16 @@ anything the browser sends. Limits and requirements:
   connections are each checked when opened.
 - Identity is the OS Login **username** (e.g. `jane_example_com`), not the
   email; it is what the audit log shows in this mode.
-- **To prove first (milestone 2):** on a real GCP VM with OS Login, two
-  different users forwarding at the same time are each resolved to their own
-  username, and a connection whose owner can't be found gets `401`. The
+- Implemented in `Fumehood.Identity.ssh_tunnel/2` + `FumehoodWeb.Plugs.Identity`
+  (cached per TCP connection); a live test identifies the Linux user behind
+  real IPv4 and IPv6 loopback connections.
+- **Still to prove on a real GCP VM with OS Login:** two different users
+  forwarding at the same time are each resolved to their own username. The
   approach relies on sshd opening forwarded connections from the per-session
-  process that runs as the logged-in user.
+  process that runs as the logged-in user. `scripts/ssh-tunnel-identity-check.py`
+  (Python 3 only, no fumehood install) does the same lookup and answers each
+  connection with its username — run it on the VM, then `curl` through two
+  tunnels.
 
 ### 6.3 Common rules
 

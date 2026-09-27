@@ -20,7 +20,7 @@ defmodule Fumehood.MixProject do
   def application do
     [
       mod: {Fumehood.Application, []},
-      extra_applications: [:logger, :runtime_tools]
+      extra_applications: [:logger, :runtime_tools, :inets, :ssl]
     ]
   end
 

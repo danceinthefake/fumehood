@@ -23,6 +23,27 @@ end
 config :fumehood, FumehoodWeb.Endpoint,
   http: [port: String.to_integer(System.get_env("PORT", "4000"))]
 
+# How people reach fumehood and where their identity comes from (DESIGN.md §6).
+# Production must choose iap or ssh_tunnel; a fixed dev user is refused there.
+env = config_env()
+
+access =
+  case System.get_env("FUMEHOOD_ACCESS") do
+    "iap" ->
+      [mode: :iap, audience: System.fetch_env!("FUMEHOOD_IAP_AUDIENCE")]
+
+    "ssh_tunnel" ->
+      [mode: :ssh_tunnel]
+
+    nil when env != :prod ->
+      [mode: :dev, user: System.get_env("FUMEHOOD_DEV_USER", "dev@localhost")]
+
+    other ->
+      raise "FUMEHOOD_ACCESS must be iap or ssh_tunnel (got #{inspect(other)})"
+  end
+
+config :fumehood, :access, access
+
 if config_env() == :prod do
   config :fumehood, config_path: System.get_env("FUMEHOOD_CONFIG", "/etc/fumehood/fumehood.toml")
 
@@ -54,11 +75,9 @@ if config_env() == :prod do
   config :fumehood, FumehoodWeb.Endpoint,
     url: [host: host, port: 443, scheme: "https"],
     http: [
-      # Enable IPv6 and bind on all interfaces.
-      # Set it to  {0, 0, 0, 0, 0, 0, 0, 1} for local network only access.
-      # See the documentation on https://bandit.hexdocs.pm/Bandit.html#t:options/0
-      # for details about using IPv6 vs IPv4 and loopback vs public addresses.
-      ip: {0, 0, 0, 0, 0, 0, 0, 0}
+      # ssh_tunnel: loopback only, reachable just through SSH on the VM.
+      # iap: all interfaces, behind the load balancer.
+      ip: if(access[:mode] == :ssh_tunnel, do: {127, 0, 0, 1}, else: {0, 0, 0, 0, 0, 0, 0, 0})
     ],
     secret_key_base: secret_key_base
 

@@ -3,6 +3,7 @@ defmodule FumehoodWeb.Router do
 
   pipeline :api do
     plug :accepts, ["json"]
+    plug FumehoodWeb.Plugs.Identity
   end
 
   scope "/api", FumehoodWeb do
