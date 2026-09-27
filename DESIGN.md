@@ -145,14 +145,19 @@ Every committed `UPDATE` or `DELETE` saves the rows it is about to change
 transaction, written to a backup file, and the transaction commits only
 after the file is safely stored — **never a change without its backup**.
 
-**How the "before" rows are captured:**
+**How the "before" rows are captured** (`Fumehood.Runner.commit/3`) —
+without rebuilding any SQL from the parse tree (`pg_query_ex` can't
+deparse), the same way on every Postgres version:
 
-- fumehood builds a `SELECT * … FOR UPDATE` from the same statement's AST
-  (same table, same `WHERE`, same `FROM` / `USING`), which reads and locks
-  exactly the rows the change will touch; those rows are exported (below)
-  before the change runs.
-- If fumehood can't derive the before-rows safely for a statement, the
-  **commit is refused** — no change without a backup.
+- fumehood runs the statement **inside a savepoint** with
+  `RETURNING <primary key>`, records exactly which keys it touches, and
+  rolls back to the savepoint;
+- it **locks those rows by key** (`SELECT … FOR UPDATE`, keys passed as
+  typed arrays so the primary key index is used) and exports them with
+  `COPY`;
+- after the backup is on disk it runs the statement for real, again
+  returning the keys, and requires **the same key set**; otherwise it rolls
+  back.
 
 **Stored as CSV files — decided.** Postgres writes the CSV itself
 (`COPY (…) TO STDOUT WITH (FORMAT csv, HEADER)`), never fumehood's own
@@ -162,16 +167,18 @@ table with `COPY FROM`.
 
 Commit sequence for an `UPDATE` / `DELETE`:
 
-1. `BEGIN` → timeouts → lock the target rows (`SELECT … FOR UPDATE`, built
-   from the statement's AST);
-2. `COPY` exactly those rows out as CSV;
-3. save `<audit_id>.csv` + `<audit_id>.json` (database, table, column names
-   and types, primary key, statement, who, when) and wait until they are
-   durably stored;
-4. run the statement; check the row count against the dry run;
-5. `COMMIT`. If step 3 or 4 fails → `ROLLBACK`: **never a change without a
-   saved backup**. A file whose transaction then failed is marked
-   "not applied" by the audit log (harmless).
+1. `BEGIN` → timeouts → primary key check;
+2. probe in a savepoint → keys; the count must equal the dry run's;
+3. lock the rows by key, `COPY` exactly those rows out as CSV;
+4. write `<id>.csv` + `<id>.json` (table, operation, primary key, keys,
+   statement, who, when) with `sync`;
+5. run the statement returning keys; must equal the probed keys;
+6. `COMMIT`. Any failure in 2–5 → `ROLLBACK`: **never a change without a
+   saved backup**. A lock that can't be taken within `lock_timeout` fails
+   the commit instead of waiting.
+
+`INSERT`: run returning the new keys; count must equal the dry run's; the
+keys go into `<id>.json` (no CSV) so the insert can be undone.
 
 Where the files go (`backup_dir` / `backup_bucket` in `fumehood.toml`):
 
