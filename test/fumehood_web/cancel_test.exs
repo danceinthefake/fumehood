@@ -112,6 +112,34 @@ defmodule FumehoodWeb.CancelTest do
     assert request |> Task.await() |> json_response(409)
   end
 
+  # Regression: a cancel arriving between statements (right after BEGIN,
+  # before the query's statement starts) used to be a no-op in Postgres.
+  test "a cancel at the earliest moment still stops the query" do
+    {:ok, statement} = Fumehood.Safety.check("SELECT pg_sleep(10)")
+    conn = Fumehood.Databases.conn("pg16")
+
+    for i <- 1..10 do
+      id = "early-#{System.unique_integer([:positive])}-#{i}"
+      parent = self()
+
+      task =
+        Task.async(fn ->
+          Queries.track(id, "me", "pg16", fn on_backend ->
+            Fumehood.Runner.read(conn, statement,
+              on_backend: fn pid ->
+                on_backend.(pid)
+                send(parent, :started)
+              end
+            )
+          end)
+        end)
+
+      assert_receive :started, 5_000
+      assert Queries.cancel(id, "me") == :ok
+      assert {:error, {:cancelled, _}} = Task.await(task, 3_000)
+    end
+  end
+
   test "bad query ids are rejected", %{conn: conn} do
     assert %{"error" => %{"rule" => "bad_request"}} =
              conn

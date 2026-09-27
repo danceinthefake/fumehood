@@ -75,6 +75,12 @@ if config_env() == :prod do
 
   config :fumehood, FumehoodWeb.Endpoint,
     url: [host: host, port: 443, scheme: "https"],
+    # WebSocket origins: through the SSH tunnel the browser is on localhost.
+    check_origin:
+      if(access[:mode] == :ssh_tunnel,
+        do: ["//localhost", "//127.0.0.1", "//[::1]"],
+        else: ["//#{host}"]
+      ),
     http: [
       # ssh_tunnel: loopback only, reachable just through SSH on the VM.
       # iap: all interfaces, behind the load balancer.

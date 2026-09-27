@@ -278,7 +278,11 @@ defmodule Fumehood.Services.Query do
   # A broken audit store (locked, missing table, full disk) raises; treat it
   # the same as a failed insert so writes are refused cleanly.
   defp insert_entry(entry) do
-    AuditRepo.insert(entry)
+    with {:ok, saved} <- AuditRepo.insert(entry) do
+      # live feed (FumehoodWeb.AuditChannel)
+      FumehoodWeb.Endpoint.broadcast("audit:#{saved.database}", "entry", audit_view(saved))
+      {:ok, saved}
+    end
   rescue
     e -> {:error, Exception.message(e)}
   end

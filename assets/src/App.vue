@@ -26,6 +26,7 @@ import {
   type RestorePlan,
 } from "./api";
 import ResultTable from "./ResultTable.vue";
+import AuditPanel from "./AuditPanel.vue";
 
 const toast = useToast();
 
@@ -107,7 +108,7 @@ watch(activeId, () => {
   clearResult();
   restorePlan.value = null;
   // read-only databases have no backups tab
-  if (!writable.value) tab.value = "query";
+  if (!writable.value && tab.value === "backups") tab.value = "query";
   else if (tab.value === "backups") loadBackups();
 });
 
@@ -229,6 +230,7 @@ const when = (iso: string) => new Date(iso).toLocaleString();
         :tabs="[
           { value: 'query', label: 'Query' },
           { value: 'backups', label: 'Backups', disabled: !writable },
+          { value: 'audit', label: 'Audit' },
         ]"
         label="View"
       />
@@ -296,6 +298,11 @@ const when = (iso: string) => new Date(iso).toLocaleString();
             :caption="`After the change (first ${dryRun.preview.length})`"
           />
         </template>
+      </div>
+
+      <!-- Audit ------------------------------------------------------------------>
+      <div v-else-if="tab === 'audit'" class="panel">
+        <AuditPanel :db="db.id" />
       </div>
 
       <!-- Backups -------------------------------------------------------------->

@@ -338,6 +338,11 @@ defmodule Fumehood.Runner do
       {:error, {:ok, value}} -> {:ok, value}
       {:error, {:error, reason}} -> {:error, reason}
     end
+  rescue
+    # A statement of ours (e.g. SET LOCAL) failing — or being cancelled —
+    # has already rolled the transaction back; report it like any other
+    # database error instead of crashing the caller.
+    e in Postgrex.Error -> {:error, {:db_error, Exception.message(e)}}
   end
 
   # Like query/3, plus each result column's type (for `Fumehood.Values`).

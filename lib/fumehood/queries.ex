@@ -60,19 +60,40 @@ defmodule Fumehood.Queries do
   @spec cancel(String.t(), String.t()) :: :ok | {:error, :not_found}
   def cancel(query_id, owner) do
     case :ets.lookup(@table, query_id) do
-      [{^query_id, ^owner, db_id, backend, _}] ->
+      [{^query_id, ^owner, _db_id, _backend, _}] ->
         :ets.update_element(@table, query_id, {5, true})
-
-        if backend,
-          do:
-            Postgrex.query(Fumehood.Databases.conn(db_id), "SELECT pg_cancel_backend($1)", [
-              backend
-            ])
-
+        cancel_backend(query_id)
+        # pg_cancel_backend only stops a *running* statement: if the query is
+        # between statements (just after BEGIN, say), it's a no-op. Keep
+        # cancelling until the query has ended.
+        Task.start(fn -> keep_cancelling(query_id, 100) end)
         :ok
 
       _ ->
         {:error, :not_found}
+    end
+  end
+
+  # ponytail: an unsupervised polling task per cancel (100 ms, at most 10 s);
+  # fine for a handful of cancels, supervise it if cancels become frequent.
+  defp keep_cancelling(_query_id, 0), do: :ok
+
+  defp keep_cancelling(query_id, tries) do
+    Process.sleep(100)
+    if cancel_backend(query_id) == :running, do: keep_cancelling(query_id, tries - 1)
+  end
+
+  defp cancel_backend(query_id) do
+    case :ets.lookup(@table, query_id) do
+      [{_, _, db_id, backend, true}] ->
+        if backend do
+          Postgrex.query(Fumehood.Databases.conn(db_id), "SELECT pg_cancel_backend($1)", [backend])
+        end
+
+        :running
+
+      _ ->
+        :ended
     end
   end
 end

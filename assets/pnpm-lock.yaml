@@ -11,6 +11,9 @@ importers:
       blessing-ui:
         specifier: ^0.1.0
         version: 0.1.0(vue@3.5.43)
+      phoenix:
+        specifier: 1.8.15
+        version: 1.8.15
       vue:
         specifier: ^3.5.43
         version: 3.5.43
@@ -438,6 +441,9 @@ packages:
       vite-plus:
         optional: true
 
+  phoenix@1.8.15:
+    resolution: {integrity: sha512-AU2t9smrLcSy7DF1ic3VKDVNmjnhcsOgdeXBiVrR29BgFLmO4EN+tyGx/lRY3naxl7eJtyLrnlBOfJu8gYvXdQ==}
+
   picocolors@1.1.1:
     resolution: {integrity: sha512-xceH2snhtb5M9liqDsmEw56le376mTZkEX/jEb/RxNFyegNul7eNslCXP9FDj/Lcu0X8KEyMceP2ntpaHrDEVA==}
 
@@ -797,6 +803,8 @@ snapshots:
       '@oxfmt/binding-win32-arm64-msvc': 0.68.0
       '@oxfmt/binding-win32-ia32-msvc': 0.68.0
       '@oxfmt/binding-win32-x64-msvc': 0.68.0
+
+  phoenix@1.8.15: {}
 
   picocolors@1.1.1: {}
 

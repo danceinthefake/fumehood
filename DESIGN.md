@@ -403,8 +403,13 @@ backup id and the backup a restore undoes.
   change reaches production unrecorded. The outcome is a second entry (the
   log is never updated).
 - `GET /api/databases/:id/audit?before=<id>` — newest first, 100 per page.
-- Live feed in the UI over a Channel — anyone with access sees activity as
-  it happens (3c).
+- **Live feed** over Phoenix Channels (`FumehoodWeb.UserSocket` →
+  `FumehoodWeb.AuditChannel`, topic `audit:<database>`): joining replies with
+  the latest entries, every new entry is pushed as it's written. The socket
+  is identified exactly like API requests (IAP JWT from the upgrade's `x-`
+  headers, SSH-tunnel socket owner, dev user) — no identity, no socket.
+  WebSocket origins: `localhost` in `ssh_tunnel` mode, `PHX_HOST` otherwise.
+  The UI's Audit tab (every database) shows it.
 - Result data itself is **not** stored (it may hold personal data); only
   counts.
 - Later: export (CSV / JSON), retention (needs a deliberate path around the
@@ -516,8 +521,9 @@ modes; Cloud Run is an optional later target.
    dry run → confirm → commit. ✅ built (config, identity, JSON API, UI;
    2026-09-27) — **open: prove the SSH-tunnel identity with two users on a
    real GCP VM** (`scripts/ssh-tunnel-identity-check.py`).
-3. **Live + audit:** QueryRunner processes, cancel/timeout, Channels for
-   progress and the audit feed.
+3. ✅ **Live + audit** (done 2026-09-27): append-only audit log (written
+   before any change), cancel of running queries via `pg_cancel_backend`,
+   live audit feed over Channels; UI Cancel button + Audit tab.
 4. **Hardening:** per-database `read_only` / `read_write` enforcement
    tests, Secret Manager / env-file setup docs, two-instance example.
 5. **Packaging:** VM install (release + systemd unit + setup script for both
