@@ -57,9 +57,20 @@ server.
   IP**, on a network that can reach your Postgres databases.
 - OS Login enabled on the VM (`enable-oslogin=TRUE` metadata), so everyone
   signs in as their own Linux user.
-- Docker on the machine where you build the release (not on the VM).
+- Only if you build the release yourself: Docker on the machine where you
+  build it (not on the VM).
 
-### 1. Build the release
+### 1. Get the release
+
+Download `fumehood-0.1.2.tar.gz` and its `.sha256` from the
+[Releases page](https://github.com/danceinthefake/fumehood/releases) into
+`dist/`, and check it:
+
+```sh
+cd dist && sha256sum -c fumehood-0.1.2.tar.gz.sha256 && cd ..
+```
+
+Or build it from source:
 
 ```sh
 scripts/build-release.sh    # → dist/fumehood-0.1.2.tar.gz

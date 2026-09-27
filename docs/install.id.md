@@ -57,9 +57,20 @@ mesin sendiri, jangan pernah di server.
   publik**, di jaringan yang bisa menjangkau database Postgres Anda.
 - OS Login aktif di VM (metadata `enable-oslogin=TRUE`), supaya setiap orang
   masuk sebagai user Linux-nya sendiri.
-- Docker di mesin tempat Anda mem-build release (bukan di VM).
+- Hanya kalau mem-build release sendiri: Docker di mesin tempat Anda
+  mem-build-nya (bukan di VM).
 
-### 1. Build release
+### 1. Ambil release
+
+Unduh `fumehood-0.1.2.tar.gz` beserta `.sha256`-nya dari
+[halaman Releases](https://github.com/danceinthefake/fumehood/releases) ke
+`dist/`, lalu periksa:
+
+```sh
+cd dist && sha256sum -c fumehood-0.1.2.tar.gz.sha256 && cd ..
+```
+
+Atau build dari source:
 
 ```sh
 scripts/build-release.sh    # → dist/fumehood-0.1.2.tar.gz
