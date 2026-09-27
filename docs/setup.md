@@ -1,9 +1,10 @@
 # Setting up fumehood
 
+English · [Bahasa Indonesia](setup.id.md)
+
 This covers what to prepare before installing fumehood: the Postgres roles it
 connects as, where its secrets live, and how to give different people
-different permissions. The install itself (release, systemd unit) comes with
-milestone 5.
+different permissions. The install itself: [install.md](install.md).
 
 ## 1. Postgres roles
 
@@ -62,17 +63,14 @@ database names an environment variable that holds its connection string.
 
 ### Env file (default)
 
-`/etc/fumehood/fumehood.env`, owned by root, mode `0600`:
+`/etc/fumehood/fumehood.env`, owned by root, mode `0600`. `install.sh`
+creates it with a generated `SECRET_KEY_BASE`; add one line per database:
 
 ```sh
 FUMEHOOD_ACCESS=ssh_tunnel
-SECRET_KEY_BASE=…            # mix phx.gen.secret
-DATABASE_PATH=/var/lib/fumehood/fumehood.db
+SECRET_KEY_BASE=…
+PORT=4000
 ORDERS_PROD_URL=postgres://fumehood_ro:…@10.0.0.5/orders
-```
-
-```sh
-sudo install -m 0600 -o root -g root fumehood.env /etc/fumehood/fumehood.env
 ```
 
 The systemd unit loads it with `EnvironmentFile=/etc/fumehood/fumehood.env`;
@@ -81,7 +79,8 @@ service user never needs to read it.
 
 ### Google Secret Manager (optional)
 
-Keep the connection strings in Secret Manager and write the env file at start:
+Keep the connection strings in Secret Manager and write them to a second env
+file at each start. Add a drop-in with `sudo systemctl edit fumehood`:
 
 ```ini
 [Service]
@@ -89,17 +88,21 @@ ExecStartPre=+/bin/sh -c 'umask 077; { \
   echo "SECRET_KEY_BASE=$(gcloud secrets versions access latest --secret=fumehood-secret-key-base)"; \
   echo "ORDERS_PROD_URL=$(gcloud secrets versions access latest --secret=orders-prod-url)"; \
 } > /run/fumehood/secrets.env'
-EnvironmentFile=/etc/fumehood/fumehood.env
 EnvironmentFile=-/run/fumehood/secrets.env
 ```
+
+Remove those lines from `/etc/fumehood/fumehood.env`; values in the second
+file win.
 
 The VM's service account needs `roles/secretmanager.secretAccessor` on those
 secrets only. `/run` is memory-backed, so the values never touch the disk.
 
 ### Files fumehood writes
 
-- `DATABASE_PATH` (the audit log) and `backup_dir` hold data from production
-  tables. Own them by the service user, mode `0700` for the directories.
+- The audit log (`DATABASE_PATH`) and `backup_dir` hold data from production
+  tables. The unit keeps them in `/var/lib/fumehood`, owner-only (`0700`
+  directories, `0600` files). A `backup_dir` elsewhere must be owned by the
+  `fumehood` user and added to the unit with `ReadWritePaths=`.
 - Backups expire after `backup_retention_days` (30 by default).
 
 ## 3. Different permissions for different people
@@ -177,14 +180,14 @@ Adding or removing a person is an IAM change; fumehood needs no restart.
 
 | Variable                | Required         | Meaning |
 |-------------------------|------------------|---------|
-| `FUMEHOOD_ACCESS`       | yes (prod)       | `iap` or `ssh_tunnel` |
+| `FUMEHOOD_ACCESS`       | yes (prod)       | `iap` or `ssh_tunnel`; `dev` only for a local try-out |
 | `FUMEHOOD_IAP_AUDIENCE` | with `iap`       | `/projects/NUMBER/global/backendServices/ID` |
 | `FUMEHOOD_CONFIG`       | no               | path to `fumehood.toml` (default `/etc/fumehood/fumehood.toml`) |
-| `DATABASE_PATH`         | yes (prod)       | SQLite file for the audit log |
-| `SECRET_KEY_BASE`       | yes (prod)       | from `mix phx.gen.secret` |
+| `DATABASE_PATH`         | set by the unit  | SQLite file for the audit log (`/var/lib/fumehood/fumehood.db`) |
+| `SECRET_KEY_BASE`       | yes (prod)       | random, 48+ bytes; `install.sh` generates it |
 | `PHX_HOST`              | with `iap`       | public host name; also the allowed WebSocket origin |
-| `PHX_SERVER`            | release          | `true` to start the HTTP server |
+| `PHX_SERVER`            | set by the unit  | `true` to start the HTTP server |
 | `PORT`                  | no               | HTTP port (default 4000); `ssh_tunnel` binds 127.0.0.1 only |
 | `POOL_SIZE`             | no               | SQLite pool size (default 5) |
-| `FUMEHOOD_DEV_USER`     | no (dev only)    | fixed identity outside prod (default `dev@localhost`) |
+| `FUMEHOOD_DEV_USER`     | no               | the fixed identity in `dev` mode (default `dev@localhost`) |
 | one per database        | yes              | the connection string named by `url_env` |

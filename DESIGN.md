@@ -509,15 +509,20 @@ modes; Cloud Run is an optional later target.
 - **Config:** `SECRET_KEY_BASE`, `FUMEHOOD_ACCESS=iap|ssh_tunnel` (+ IAP
   audience for `iap`), port, `fumehood.toml` (databases, `backup_dir`), one
   env var per database connection string.
-- **Try-out:** the Docker image —
-  `docker run -p 4000:4000 -v fumehood:/data -v ./fumehood.toml:/etc/fumehood.toml
-  -e FUMEHOOD_DEV_USER=me@x.com -e ORDERS_PROD_URL=… …` → query. Five
-  minutes, local only.
+- **Try-out:** the Docker image with `FUMEHOOD_ACCESS=dev` (no identity
+  check, local only) → query in five minutes.
+- **Built (2026-09-27):** `Dockerfile` (UI + release on Debian bookworm,
+  runs as `nobody`, `/data` volume); `scripts/build-release.sh` → release
+  tarball carrying `install.sh`, a sandboxed systemd unit
+  (`ProtectSystem=strict`, no capabilities, `UMask=0077`, no Erlang
+  distribution) and an example `fumehood.toml`; `GET /health` for the load
+  balancer. Steps: [docs/install.md](docs/install.md).
 - **Cloud Run (optional, later):** needs the Postgres store instead of SQLite
   (Cloud Run has no persistent disk; SQLite on a mounted bucket is
   unreliable) and a GCS bucket for backups; `iap` mode only. GKE with a
   persistent volume works like the VM.
-- Docs include the VM setup for both modes step by step.
+- Docs include the VM setup for both modes step by step, in English and
+  Bahasa Indonesia.
 
 ## 10. Milestones
 
@@ -540,9 +545,11 @@ modes; Cloud Run is an optional later target.
    the documented `read_write` grants), SQL size limit, security headers,
    backup retention job; setup docs for roles, env file / Secret Manager
    and the two-instance example ([docs/setup.md](docs/setup.md)).
-5. **Packaging:** VM install (release + systemd unit + setup script for both
-   modes), Docker image for try-out, docs (English + Bahasa Indonesia),
-   first release.
+5. ✅ **Packaging** (done 2026-09-27): VM install (release tarball +
+   `install.sh` + sandboxed systemd unit, both modes; checked in a systemd
+   Debian container), Docker image for try-out, docs in English + Bahasa
+   Indonesia (README, install, setup), first release 0.1.0 (CHANGELOG, tag
+   `v0.1.0`).
 
 ## 11. Decisions
 

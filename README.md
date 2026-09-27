@@ -1,10 +1,28 @@
 # fumehood
 
+English · [Bahasa Indonesia](README.id.md)
+
 Run queries against production PostgreSQL safely: dangerous statements are
 blocked, every query runs inside a transaction, every `UPDATE` / `DELETE` is
 backed up before it commits, and every action is audited.
 
-Design: [DESIGN.md](DESIGN.md).
+- Reads run in a read-only transaction with a row limit and a timeout.
+- Writes go through a dry run first: you see how many rows change and what
+  they look like, then confirm.
+- Before a write commits, the rows it changes are saved to CSV; the Backups
+  tab restores them, with the same dry run → confirm.
+- DDL, `TRUNCATE`, writes without `WHERE`, and more are blocked by parsing
+  the SQL with Postgres's own parser.
+- Who did what is in an append-only audit log, live in the UI.
+- No user accounts: people sign in through Google Cloud IAP or an SSH
+  tunnel, and IAM decides who gets in.
+
+Built with Elixir, Phoenix and Vue ([blessing-ui](https://www.npmjs.com/package/blessing-ui)).
+
+- Install: [docs/install.md](docs/install.md)
+- Postgres roles, secrets, two-instance setup: [docs/setup.md](docs/setup.md)
+- Design: [DESIGN.md](DESIGN.md)
+- Changes: [CHANGELOG.md](CHANGELOG.md)
 
 ## Development
 
