@@ -221,8 +221,11 @@ values can't be undone by key (the dry run reports it as incomplete).
 
 - `UPDATE` / `DELETE` on a table **without a primary key** is **blocked** —
   restore couldn't target the right rows.
-- Retention **30 days** by default (per database in `fumehood.toml`);
-  expired backup files are deleted by a job inside fumehood — no cron.
+- Retention **30 days** by default (`backup_retention_days` per database in
+  `fumehood.toml`); `Fumehood.Jobs.ExpireBackups` deletes older backups
+  every 6 hours inside fumehood — no cron. Age comes from the backup id (UTC
+  timestamp), not the file's modification time; files fumehood didn't
+  write are left alone.
 
 ### 5.5 One process per query
 

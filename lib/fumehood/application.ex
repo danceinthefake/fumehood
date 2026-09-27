@@ -40,7 +40,7 @@ defmodule Fumehood.Application do
 
       path ->
         case Fumehood.Config.load(path) do
-          {:ok, config} -> [{Fumehood.Databases, config}]
+          {:ok, config} -> [{Fumehood.Databases, config}, Fumehood.Jobs.ExpireBackups]
           {:error, errors} -> raise "invalid #{path}:\n  - " <> Enum.join(errors, "\n  - ")
         end
     end
