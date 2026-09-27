@@ -1,0 +1,13 @@
+# Development config: the compose target databases (docker compose up -d).
+# URLs are set in mise.toml [env].
+backup_dir = "tmp/backups"
+
+[databases.pg16]
+label   = "Local Postgres 16 (read/write)"
+mode    = "read_write"
+url_env = "FUMEHOOD_DEV_PG16_URL"
+
+[databases.pg18]
+label   = "Local Postgres 18 (read only)"
+mode    = "read_only"
+url_env = "FUMEHOOD_DEV_PG18_URL"

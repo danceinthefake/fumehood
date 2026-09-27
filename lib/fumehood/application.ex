@@ -7,17 +7,14 @@ defmodule Fumehood.Application do
 
   @impl true
   def start(_type, _args) do
-    children = [
-      FumehoodWeb.Telemetry,
-      Fumehood.Repo,
-      {Ecto.Migrator,
-       repos: Application.fetch_env!(:fumehood, :ecto_repos), skip: skip_migrations?()},
-      {Phoenix.PubSub, name: Fumehood.PubSub},
-      # Start a worker by calling: Fumehood.Worker.start_link(arg)
-      # {Fumehood.Worker, arg},
-      # Start to serve requests, typically the last entry
-      FumehoodWeb.Endpoint
-    ]
+    children =
+      [
+        FumehoodWeb.Telemetry,
+        Fumehood.Repo,
+        {Ecto.Migrator,
+         repos: Application.fetch_env!(:fumehood, :ecto_repos), skip: skip_migrations?()},
+        {Phoenix.PubSub, name: Fumehood.PubSub}
+      ] ++ databases() ++ [FumehoodWeb.Endpoint]
 
     # See https://elixir.hexdocs.pm/Supervisor.html
     # for other strategies and supported options
@@ -31,6 +28,21 @@ defmodule Fumehood.Application do
   def config_change(changed, _new, removed) do
     FumehoodWeb.Endpoint.config_change(changed, removed)
     :ok
+  end
+
+  # Target databases from fumehood.toml; not started in tests (they bring
+  # their own connections). A bad config stops startup with every problem.
+  defp databases do
+    case Application.get_env(:fumehood, :config_path) do
+      nil ->
+        []
+
+      path ->
+        case Fumehood.Config.load(path) do
+          {:ok, config} -> [{Fumehood.Databases, config}]
+          {:error, errors} -> raise "invalid #{path}:\n  - " <> Enum.join(errors, "\n  - ")
+        end
+    end
   end
 
   defp skip_migrations?() do

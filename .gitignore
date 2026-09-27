@@ -29,3 +29,4 @@ fumehood-*.tar
 *.db
 *.db-*
 
+/tmp/
