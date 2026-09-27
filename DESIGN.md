@@ -326,13 +326,11 @@ anything the browser sends. Limits and requirements:
 - Implemented in `Fumehood.Identity.ssh_tunnel/2` + `FumehoodWeb.Plugs.Identity`
   (cached per TCP connection); a live test identifies the Linux user behind
   real IPv4 and IPv6 loopback connections.
-- **Still to prove on a real GCP VM with OS Login:** two different users
-  forwarding at the same time are each resolved to their own username. The
-  approach relies on sshd opening forwarded connections from the per-session
-  process that runs as the logged-in user. `scripts/ssh-tunnel-identity-check.py`
-  (Python 3 only, no fumehood install) does the same lookup and answers each
-  connection with its username — run it on the VM, then `curl` through two
-  tunnels.
+- Checked with the installed release under its systemd unit: two Linux
+  users on the same host are each identified as themselves. Not tested on a
+  GCP VM with OS Login (decided 2026-09-27: no GCP test); it relies on sshd
+  opening forwarded connections from the per-session process that runs as
+  the logged-in user.
 
 ### 6.3 Common rules
 
@@ -534,9 +532,8 @@ modes; Cloud Run is an optional later target.
    functions, multiple statements).
 2. **API + minimal UI:** identity for both modes (IAP JWT, SSH-tunnel socket
    owner) + dev user, databases from `fumehood.toml`, editor, results table,
-   dry run → confirm → commit. ✅ built (config, identity, JSON API, UI;
-   2026-09-27) — **open: prove the SSH-tunnel identity with two users on a
-   real GCP VM** (`scripts/ssh-tunnel-identity-check.py`).
+   dry run → confirm → commit. ✅ done (config, identity, JSON API, UI;
+   2026-09-27; no GCP VM test, see §6.2).
 3. ✅ **Live + audit** (done 2026-09-27): append-only audit log (written
    before any change), cancel of running queries via `pg_cancel_backend`,
    live audit feed over Channels; UI Cancel button + Audit tab.
