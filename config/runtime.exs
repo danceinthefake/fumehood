@@ -42,7 +42,8 @@ access =
       raise "FUMEHOOD_ACCESS must be iap or ssh_tunnel (got #{inspect(other)})"
   end
 
-config :fumehood, :access, access
+# Tests set their own identity in config/test.exs.
+if env != :test, do: config(:fumehood, :access, access)
 
 if config_env() == :prod do
   config :fumehood, config_path: System.get_env("FUMEHOOD_CONFIG", "/etc/fumehood/fumehood.toml")

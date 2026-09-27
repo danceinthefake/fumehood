@@ -44,10 +44,11 @@ defmodule Fumehood.Runner do
     max = opts[:max_rows]
 
     in_transaction(conn, opts, :read_only, fn tx ->
-      with {:ok, result} <- query(tx, read_sql(statement, max + 1)) do
+      with {:ok, result, types} <- typed_query(tx, read_sql(statement, max + 1)) do
         {:ok,
          %{
            columns: result.columns || [],
+           types: types,
            rows: Enum.take(result.rows || [], max),
            truncated: length(result.rows || []) > max
          }}
@@ -67,12 +68,14 @@ defmodule Fumehood.Runner do
 
     in_transaction(conn, opts, :rollback, fn tx ->
       with {:ok, _table} <- table_info(tx, statement),
-           {:ok, result} <- query(tx, statement.sql <> "\nRETURNING #{target(statement)}.*"),
+           {:ok, result, types} <-
+             typed_query(tx, statement.sql <> "\nRETURNING #{target(statement)}.*"),
            :ok <- within_limit(result.num_rows, opts[:max_rows]) do
         {:ok,
          %{
            count: result.num_rows,
            columns: result.columns,
+           types: types,
            preview: Enum.take(result.rows, opts[:preview])
          }}
       end
@@ -325,6 +328,20 @@ defmodule Fumehood.Runner do
       {:ok, value} -> {:ok, value}
       {:error, {:ok, value}} -> {:ok, value}
       {:error, {:error, reason}} -> {:error, reason}
+    end
+  end
+
+  # Like query/3, plus each result column's type (for `Fumehood.Values`).
+  defp typed_query(tx, sql) do
+    case Postgrex.prepare_execute(tx, "", sql, []) do
+      {:ok, prepared, result} ->
+        {:ok, result, Enum.zip(prepared.result_types || [], prepared.result_oids || [])}
+
+      {:error, %Postgrex.Error{postgres: %{message: message}}} ->
+        {:error, {:db_error, message}}
+
+      {:error, error} ->
+        {:error, {:db_error, Exception.message(error)}}
     end
   end
 

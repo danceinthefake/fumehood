@@ -407,6 +407,24 @@ Router ─► Controllers      QueryChannel / AuditChannel
    fumehood's own store (audit log only)
 ```
 
+JSON API (`FumehoodWeb.ApiController` → `Fumehood.Services.Query`); errors
+are `{"error": {"rule", "message"}}` with 422 (blocked / database error), 404
+or 400:
+
+| Method and path | Does |
+|---|---|
+| `GET /api/me` | the caller's identity |
+| `GET /api/databases` | configured databases (id, label, mode) |
+| `POST /api/databases/:id/run` `{sql}` | a read, or a write's dry run (count + preview) |
+| `POST /api/databases/:id/commit` `{sql, expected_count}` | backs up, then commits a write |
+| `GET /api/databases/:id/backups` | backups, newest first |
+| `POST /api/databases/:id/backups/:backup_id/restore` | dry run of the undo (with its SQL) |
+| `POST /api/databases/:id/backups/:backup_id/restore/commit` `{expected_count}` | commits the undo |
+
+Values are made JSON-safe by column type OID (`Fumehood.Values`): uuid as
+text, bytea as `\x…`, numeric as an exact string, timestamps ISO 8601,
+intervals Postgres-style.
+
 Layers are plain modules a Go developer can map directly:
 
 | Go habit | fumehood |
