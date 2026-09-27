@@ -389,6 +389,8 @@ only to stamp the audit log.
 - Recommend giving fumehood a Postgres role with only the privileges it
   needs — for `read_only` databases, a role with `SELECT` only, so Postgres
   enforces it a third time (parser → read-only transaction → role).
+  Exact grants per mode, secrets and the two-instance setup:
+  [docs/setup.md](docs/setup.md).
 
 ## 7. Audit
 
@@ -504,7 +506,7 @@ modes; Cloud Run is an optional later target.
   root-only env file; no public IP.
   - `ssh_tunnel`: people use `gcloud compute ssh … -L` (§6.2).
   - `iap`: an HTTPS load balancer with IAP in front of the VM (§6.1).
-- **Config:** `FUMEHOOD_SECRET_KEY`, `FUMEHOOD_ACCESS=iap|ssh_tunnel` (+ IAP
+- **Config:** `SECRET_KEY_BASE`, `FUMEHOOD_ACCESS=iap|ssh_tunnel` (+ IAP
   audience for `iap`), port, `fumehood.toml` (databases, `backup_dir`), one
   env var per database connection string.
 - **Try-out:** the Docker image —
@@ -533,8 +535,11 @@ modes; Cloud Run is an optional later target.
 3. ✅ **Live + audit** (done 2026-09-27): append-only audit log (written
    before any change), cancel of running queries via `pg_cancel_backend`,
    live audit feed over Channels; UI Cancel button + Audit tab.
-4. **Hardening:** per-database `read_only` / `read_write` enforcement
-   tests, Secret Manager / env-file setup docs, two-instance example.
+4. ✅ **Hardening** (done 2026-09-27): per-database `read_only` /
+   `read_write` enforcement tests (every write path, a `SELECT`-only role,
+   the documented `read_write` grants), SQL size limit, security headers,
+   backup retention job; setup docs for roles, env file / Secret Manager
+   and the two-instance example ([docs/setup.md](docs/setup.md)).
 5. **Packaging:** VM install (release + systemd unit + setup script for both
    modes), Docker image for try-out, docs (English + Bahasa Indonesia),
    first release.
