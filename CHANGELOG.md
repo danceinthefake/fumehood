@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Removed the Bahasa Indonesia docs: the translation read unnaturally.
+
 ## 0.1.2 — 2026-09-27
 
 - **Fixed — data loss:** an `INSERT` / `UPDATE` / `DELETE` that calls a

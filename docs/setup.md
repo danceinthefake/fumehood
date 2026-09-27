@@ -1,7 +1,5 @@
 # Setting up fumehood
 
-English · [Bahasa Indonesia](setup.id.md)
-
 This covers what to prepare before installing fumehood: the Postgres roles it
 connects as, where its secrets live, and how to give different people
 different permissions. The install itself: [install.md](install.md).

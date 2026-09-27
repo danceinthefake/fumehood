@@ -1,7 +1,5 @@
 # Installing fumehood
 
-English · [Bahasa Indonesia](install.id.md)
-
 Two ways to run fumehood:
 
 - **Try it** on your own machine with the Docker image, in five minutes.

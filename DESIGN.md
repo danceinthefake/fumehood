@@ -554,8 +554,8 @@ modes; Cloud Run is an optional later target.
   (Cloud Run has no persistent disk; SQLite on a mounted bucket is
   unreliable) and a GCS bucket for backups; `iap` mode only. GKE with a
   persistent volume works like the VM.
-- Docs include the VM setup for both modes step by step, in English and
-  Bahasa Indonesia.
+- Docs include the VM setup for both modes step by step, in English. (A
+  Bahasa Indonesia version was removed 2026-09-27: it read unnaturally.)
 
 ## 10. Milestones
 
@@ -579,8 +579,8 @@ modes; Cloud Run is an optional later target.
    and the two-instance example ([docs/setup.md](docs/setup.md)).
 5. ✅ **Packaging** (done 2026-09-27): VM install (release tarball +
    `install.sh` + sandboxed systemd unit, both modes; checked in a systemd
-   Debian container), Docker image for try-out, docs in English + Bahasa
-   Indonesia (README, install, setup), first release 0.1.0 (CHANGELOG, tag
+   Debian container), Docker image for try-out, docs (README, install, setup;
+   the Bahasa Indonesia versions were removed 2026-09-27), first release 0.1.0 (CHANGELOG, tag
    `v0.1.0`); 0.1.1 with the production-readiness fixes (tag `v0.1.1`); 0.1.2 blocks
    custom volatile functions in writes (tag `v0.1.2`).
 

@@ -1,7 +1,5 @@
 # fumehood
 
-English · [Bahasa Indonesia](README.id.md)
-
 Run queries against production PostgreSQL safely: dangerous statements are
 blocked, every query runs inside a transaction, every `UPDATE` / `DELETE` is
 backed up before it commits, and every action is audited.
