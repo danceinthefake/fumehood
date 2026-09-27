@@ -93,17 +93,25 @@ comments, odd casing, or quoting can't sneak a statement past them.
 
 ### 5.2 Statement rules (defaults, configurable per database)
 
+Implemented in `Fumehood.Safety` (allowlist: anything not listed as allowed
+is blocked).
+
 | Statement | Default |
 |---|---|
 | `SELECT`, `EXPLAIN` (without `ANALYZE`), `SHOW` | allowed, read path |
-| `INSERT`, `UPDATE`, `DELETE`, `MERGE` | allowed, write path (dry run → confirm) |
+| `EXPLAIN ANALYZE` of an allowed read | allowed, read path |
+| `INSERT`, `UPDATE`, `DELETE` | allowed, write path (dry run → confirm) |
 | `UPDATE` / `DELETE` without `WHERE` | **blocked** |
 | more than one statement in one submission | **blocked** (one statement at a time) |
-| `DROP`, `TRUNCATE`, `ALTER`, `CREATE`, `GRANT`, `REVOKE` (DDL / permissions) | **blocked** |
+| data-changing `WITH` clauses (`WITH … AS (INSERT/UPDATE/DELETE …)`) | **blocked** |
+| `SELECT … INTO`, `SELECT … FOR UPDATE / FOR SHARE` | **blocked** |
+| `EXPLAIN ANALYZE` of a write | **blocked** — it executes the write with no backup |
+| `MERGE` | **blocked** — its changed rows can't be backed up before commit (§5.4) |
+| `DROP`, `TRUNCATE`, `ALTER`, `CREATE`, `GRANT`, `REVOKE`, `COMMENT` (DDL / permissions) | **blocked** |
 | `COPY`, `VACUUM`, `CLUSTER`, `REINDEX`, `LOCK` | **blocked** |
 | transaction control (`BEGIN`, `COMMIT`, `SET`, `SAVEPOINT`…) typed by the user | **blocked** — fumehood owns the transaction |
-| `EXPLAIN ANALYZE` of a write | treated as a write (it executes it) |
-| functions known to have side effects (`pg_terminate_backend`, `pg_cancel_backend`, `dblink`, `lo_*`…) | **blocked** (deny-list) |
+| everything else (`DO`, `CALL`, `LISTEN`, `DISCARD`, …) | **blocked** |
+| functions with side effects or that run SQL from a string (`pg_terminate_backend`, `pg_cancel_backend`, `pg_reload_conf`, `set_config`, `pg_notify`, `pg_read_file`, `query_to_xml`, `dblink*`, `lo_*`, `pg_advisory*` …), anywhere in the statement | **blocked** (deny-list) |
 
 ### 5.3 Always a transaction
 
